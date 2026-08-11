@@ -11,6 +11,8 @@ game logic, rendering, audio — lives in `index.html` (~35 KB).
 | File | Purpose |
 |---|---|
 | `index.html` | The entire game. This is what GitHub Pages serves. |
+| `worker/worker.js` | Optional Cloudflare Worker backend: global leaderboard + real-time shared world. |
+| `worker/wrangler.toml` | Deploy config for the worker (`npx wrangler deploy`). |
 | `README.md` | Repo front page with play link and feature summary. |
 | `HANDOFF.md` | This document. |
 
@@ -74,6 +76,13 @@ automatically.
 - **Spawning:** fish density is maintained in a ring just outside the camera
   (world feels alive without simulating everything); global caps: ~60 solo
   fish, 9 schools, 16 jellies.
+- **Spawn safety:** `awayFromPlayer()` guarantees threats and jellyfish
+  never spawn (or respawn after being eaten) inside the player's view
+  bubble (half the screen diagonal + 120px) — a predator materializing on
+  the player was an instant unfair death. If the world border clamps the
+  pushed-out point back into view, it rotates around the player until a
+  valid spot is found. Harmless prey may still spawn in view so the world
+  stays lively.
 - **Simulation scaling:** all movement uses a dt multiplier normalized to
   60fps (`dt = elapsed / 16.67`), so speed is frame-rate independent.
 - **Boids:** separation is sampled (2 random neighbors per fish per frame)
@@ -105,94 +114,71 @@ automatically.
 Both features share one backend-detection chain, checked in this order:
 
 1. **`BACKEND_URL` set** (the const at the top of the `<script>` in
-   `index.html`): global leaderboard AND the live "who's online" list work
-   across every device, via your Cloudflare Worker (setup below). This is
-   what you want for the GitHub Pages link.
+   `index.html`): global leaderboard, live "who's online" list, AND the
+   real-time shared world — everyone on the link plays in the same ocean
+   and sees each other's fish with name tags and colored minimap dots.
+   Needs the worker deployed (setup below). This is what you want for the
+   GitHub Pages link.
 2. **Inside a Claude artifact:** `window.storage` (shared:true) — board and
-   live list shared by every player of the artifact automatically.
+   who's-online list shared by every player of the artifact (no realtime
+   world; artifact pages can't open sockets to external hosts).
 3. **Plain static hosting, no backend:** localStorage — a persistent top-10
    **per device**; the live list can't exist (a static site has no way to
    see other devices), so the start screen shows a small pointer to this
    doc instead.
 
-**Presence mechanics:** every open tab heartbeats `{id, name, score}` every
-5s; entries older than 30s are pruned, so the list self-heals when someone
-closes the tab. Score −1 means "in the lobby". In-game, a pill at the
-bottom center shows how many other hunters are online; the start screen
-lists them by name with live scores. This is a *presence list* — you see
-who's playing and their score, not their fish swimming in your world (that
-would be real-time multiplayer; see limitations).
+**Shared-world mechanics (`BACKEND_URL` mode):** each client opens a
+WebSocket to the worker's Durable Object room and sends
+`{id, name, x, y, r, score, run}` at 10Hz; the room relays every update to
+everyone else and hands new joiners a full roster. Remote hunters render as
+glowing ghost fish (color hashed from their id) with their name above and a
+matching dot on the minimap, positions smoothed toward the last report and
+snapped if they jump >600px (respawn). They're ghosts: no PvP — you can't
+eat or be eaten by another player. Each player's prey/threat ecosystem is
+simulated locally, so you share the ocean and see each other swim, but the
+small fish around you are your own. If the socket can't connect (an old
+KV-only worker, or a network that blocks WebSockets), the client falls back
+to an HTTP heartbeat every 5s (30s staleness pruning) that still powers the
+who's-online list. Score −1 means "in the lobby"; the in-game pill (bottom
+center) counts hunters swimming with you.
 
 Storage keys: `apex-abyss-leaderboard-v1`, `apex-abyss-live-v1`. Board entry
 shape: `{name (≤14 chars, sanitized on render), score, tier, t (timestamp)}`.
 
-## Global board + live list in ~5 minutes (Cloudflare Worker + KV)
+## Deploy the backend in ~5 minutes (Cloudflare, free tier)
 
-1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages →
-   Create → Worker**, any name (e.g. `apex-abyss`), deploy the hello-world,
-   then **Edit code** and replace it with:
+The complete backend lives in `worker/worker.js`: KV for the leaderboard, a
+Durable Object (`Game`) for the real-time room. Two ways to deploy — the
+CLI is the easy one because it wires up the Durable Object migration for
+you:
 
-   ```js
-   export default {
-     async fetch(req, env) {
-       const CORS = {
-         'Access-Control-Allow-Origin': '*',
-         'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-         'Access-Control-Allow-Headers': 'Content-Type',
-       };
-       if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-       const json = (o, s = 200) => new Response(JSON.stringify(o),
-         { status: s, headers: { 'Content-Type': 'application/json', ...CORS } });
-       const path = new URL(req.url).pathname;
+**Option A — wrangler CLI (recommended):**
 
-       if (path === '/board' && req.method === 'GET') {
-         return json(JSON.parse(await env.KV.get('board') || '[]'));
-       }
-       if (path === '/score' && req.method === 'POST') {
-         const b = await req.json().catch(() => null);
-         if (!b || typeof b.score !== 'number' || b.score < 0 || b.score > 100000)
-           return json({ error: 'bad' }, 400);
-         const entry = { name: String(b.name || 'Hunter').slice(0, 14),
-           score: Math.floor(b.score), tier: String(b.tier || '').slice(0, 12), t: Date.now() };
-         const board = JSON.parse(await env.KV.get('board') || '[]');
-         board.push(entry);
-         board.sort((a, z) => z.score - a.score);
-         const top = board.slice(0, 10);
-         await env.KV.put('board', JSON.stringify(top));
-         return json(top);
-       }
-       if (path === '/live' && req.method === 'POST') {
-         const b = await req.json().catch(() => null);
-         if (!b || !b.id) return json({ error: 'bad' }, 400);
-         const now = Date.now();
-         const live = JSON.parse(await env.KV.get('live') || '{}');
-         for (const k in live) if (now - live[k].t > 30000) delete live[k];
-         const id = String(b.id).slice(0, 40);
-         live[id] = { id, n: String(b.n || 'Hunter').slice(0, 14),
-           s: typeof b.s === 'number' ? Math.floor(b.s) : -1,
-           tier: String(b.tier || '').slice(0, 12), t: now };
-         await env.KV.put('live', JSON.stringify(live));
-         return json({ players: Object.values(live) });
-       }
-       return json({ error: 'not found' }, 404);
-     }
-   };
-   ```
+```bash
+cd worker
+npx wrangler login                      # opens browser, free account is fine
+npx wrangler kv namespace create KV     # prints an id
+# paste that id into wrangler.toml where it says REPLACE_WITH_...
+npx wrangler deploy                     # prints your worker URL
+```
 
-2. Worker → **Settings → Bindings → Add → KV namespace**: variable name
-   `KV`, create a namespace (e.g. `apex-abyss-kv`), save, then **Deploy**.
+**Option B — dashboard:** [dash.cloudflare.com](https://dash.cloudflare.com)
+→ Workers & Pages → Create → Worker → deploy the hello-world → Edit code →
+paste all of `worker/worker.js` → Deploy. Then Settings → Bindings: add a
+**KV namespace** (variable name `KV`) and a **Durable Object namespace**
+(variable name `GAME`, class `Game` — accept the migration prompt if one
+appears) → Deploy again.
 
-3. Copy the worker URL (`https://apex-abyss.<your-subdomain>.workers.dev`)
-   into `BACKEND_URL` at the top of the script in `index.html`, commit,
-   push. Done — global board + live player list for everyone on the Pages
-   link.
+**Finish:** copy the worker URL
+(`https://apex-abyss.<your-subdomain>.workers.dev`) into `BACKEND_URL` at
+the top of the script in `index.html`, commit, push. Everyone on the Pages
+link is now in the same ocean, with one global board.
 
-Caveats: KV is eventually consistent — players hitting different Cloudflare
-regions can take up to ~60s to appear in each other's live list (same
-region is near-instant). Heartbeats also race occasionally (last write
-wins), which self-heals within one 5s beat. Totally fine for a friends
-board; a spam-proof or real-time version wants Durable Objects and a
-shared-secret instead.
+Caveats: the room is a plain relay with no auth — fine for friends, but
+anyone with the URL can join and could spoof positions/scores; add a
+shared-secret query param to `/ws` and `/score` if that ever matters. The
+KV `/live` fallback is eventually consistent (cross-region lag up to ~60s);
+the WebSocket path has no such lag.
 
 ## Tuning knobs (all in index.html)
 
@@ -207,13 +193,19 @@ shared-secret instead.
 | Player base speed | `3.6+...` in loop | scales with score, shrinks with size |
 | Joystick radius / deadzone | `JOY_R`, `JOY_DEAD` | 52px / 0.14 |
 | Presence heartbeat / timeout | `setInterval(heartbeat,5000)`, prune `>30000` | 5s / 30s |
+| Spawn safety radius | `awayFromPlayer`: `Math.hypot(W,H)/2+120` | view bubble + 120px |
+| Net position send rate | `setInterval(()=>sendState(false),100)` | 10 Hz |
+| Remote smoothing / snap | `.2*dt` lerp, snap if `>600px` off | — |
 
 ## Known limitations / ideas not yet built
 
-- Presence shows who's online with live scores — not other players' fish in
-  your world. True shared-world multiplayer needs a stateful realtime server
-  (Cloudflare Durable Objects + WebSockets would host it; the input/render
-  code ports over).
+- No PvP: remote hunters are ghosts — you can't eat each other. Making that
+  fair needs the Durable Object to become authoritative over collisions
+  (right now it's a dumb relay that trusts clients).
+- Ecosystems are per-player: everyone shares the ocean and sees each other,
+  but the prey/threat fish around each player are simulated locally. Shared
+  fish would mean simulating the world in the Durable Object and streaming
+  it down.
 - Kelp is decorative — could become stealth cover (predators lose aggro inside).
 - No golden rare prey, no persistent progression/unlocks.
 - One sound "voice" — a low ambient drone loop would add a lot.

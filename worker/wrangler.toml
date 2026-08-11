@@ -1,0 +1,18 @@
+# APEX ABYSS backend config. Deploy from this folder:
+#   npx wrangler kv namespace create KV     <- prints an id, paste it below
+#   npx wrangler deploy
+name = "apex-abyss"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+[[durable_objects.bindings]]
+name = "GAME"
+class_name = "Game"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Game"]

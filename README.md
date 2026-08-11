@@ -11,7 +11,8 @@ A mobile-first eat-and-grow arcade game set in a bioluminescent deep sea.
 - Climb 7 tiers from Hatchling to APEX
 - Pause menu (❚❚ / Esc / back button) with restart and exit
 - Portrait and landscape both supported
-- Live "who's online" list + one global leaderboard once the free 5-minute
-  backend from `HANDOFF.md` is plugged in
+- Real shared world: friends on the link swim in the same ocean and see each
+  other's fish with name tags + minimap dots, plus one global leaderboard —
+  once the free 5-minute backend from `HANDOFF.md` is plugged in
 
 Single self-contained `index.html` — no build, no dependencies. Canvas rendering with flocking schools, jellyfish, kelp forests, shipwrecks, hydrothermal vents, and an ambient whale.
