@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>APEX ABYSS</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;600&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }
+  html,body { height:100%; overflow:hidden; background:#020810; touch-action:none; position:fixed; width:100%; }
+  #game { display:block; width:100vw; height:100vh; height:100dvh; }
+  .hud { position:fixed; inset:0; pointer-events:none; font-family:'Space Grotesk',sans-serif; color:#BFE8E0; }
+  .hud-top { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:0; right:0; display:flex; justify-content:space-between; padding:0 14px; align-items:flex-start; }
+  .score-num { font-family:'Archivo Black',sans-serif; font-size:28px; color:#3EF0C6; text-shadow:0 0 16px rgba(62,240,198,.55); line-height:1; }
+  .score-label { font-size:10px; letter-spacing:.16em; text-transform:uppercase; opacity:.6; margin-top:2px; }
+  .tier-block { text-align:right; }
+  .tier-name { font-family:'Archivo Black',sans-serif; font-size:15px; color:#FFC24D; text-shadow:0 0 12px rgba(255,194,77,.5); }
+  .tier-bar { width:100px; height:5px; background:rgba(191,232,224,.15); border-radius:3px; margin-top:5px; margin-left:auto; overflow:hidden; }
+  .tier-fill { height:100%; width:0%; background:linear-gradient(90deg,#3EF0C6,#FFC24D); transition:width .25s; }
+  #frenzy { position:absolute; top:calc(64px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); font-family:'Archivo Black',sans-serif; font-size:19px; color:#FF4D6A; text-shadow:0 0 18px rgba(255,77,106,.7); opacity:0; transition:opacity .2s; }
+  #stung { position:absolute; top:calc(64px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); font-family:'Archivo Black',sans-serif; font-size:17px; color:#C88AFF; text-shadow:0 0 18px rgba(200,138,255,.8); opacity:0; transition:opacity .2s; }
+  #announce { position:absolute; top:34%; left:50%; transform:translate(-50%,-50%) scale(.8); font-family:'Archivo Black',sans-serif; font-size:min(11vw,52px); color:#FFC24D; text-shadow:0 0 36px rgba(255,194,77,.8); opacity:0; text-align:center; white-space:nowrap; }
+  #announce.pop { animation:pop 1.6s ease forwards; }
+  @keyframes pop { 0%{opacity:0;transform:translate(-50%,-50%) scale(.6)} 15%{opacity:1;transform:translate(-50%,-50%) scale(1.08)} 25%{transform:translate(-50%,-50%) scale(1)} 75%{opacity:1} 100%{opacity:0;transform:translate(-50%,-50%) scale(1.05)} }
+  #minimap { position:absolute; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); width:92px; height:92px; border-radius:10px; border:1px solid rgba(138,223,255,.3); background:rgba(4,16,30,.6); }
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:radial-gradient(ellipse at 50% 35%, rgba(8,32,52,.94), rgba(3,10,18,.98)); font-family:'Space Grotesk',sans-serif; color:#BFE8E0; text-align:center; padding:22px; padding-top:calc(22px + env(safe-area-inset-top)); z-index:10; transition:opacity .4s; overflow-y:auto; }
+  .overlay.hidden { opacity:0; pointer-events:none; }
+  h1 { font-family:'Archivo Black',sans-serif; font-size:min(16vw,80px); color:#3EF0C6; text-shadow:0 0 40px rgba(62,240,198,.55); line-height:1; }
+  .tag { margin-top:8px; font-size:13px; letter-spacing:.3em; text-transform:uppercase; opacity:.75; }
+  .rules { margin-top:16px; font-size:13.5px; line-height:1.8; opacity:.85; max-width:330px; }
+  .rules b.eat{color:#FFC24D} .rules b.flee{color:#FF4D6A} .rules b.sting{color:#C88AFF}
+  #name { pointer-events:auto; margin-top:18px; font-family:'Space Grotesk',sans-serif; font-size:16px; text-align:center; letter-spacing:.06em; color:#3EF0C6; background:rgba(62,240,198,.08); border:1.5px solid rgba(62,240,198,.4); border-radius:12px; padding:12px 16px; width:min(78vw,280px); outline:none; }
+  #name::placeholder { color:rgba(191,232,224,.4); }
+  .btn { pointer-events:auto; margin-top:18px; font-family:'Archivo Black',sans-serif; font-size:18px; letter-spacing:.08em; color:#04101E; background:#3EF0C6; border:none; border-radius:999px; padding:16px 48px; cursor:pointer; box-shadow:0 0 30px rgba(62,240,198,.45); transition:transform .12s; }
+  .btn:active { transform:scale(.94); }
+  #death-title { color:#FF4D6A; text-shadow:0 0 40px rgba(255,77,106,.6); }
+  #final-stats { margin-top:10px; font-size:14px; line-height:1.9; opacity:.85; }
+  #final-stats span { color:#FFC24D; font-weight:600; }
+  .lb { margin-top:20px; width:min(84vw,300px); }
+  .lb-title { font-family:'Archivo Black',sans-serif; font-size:13px; letter-spacing:.22em; color:#8ADFFF; margin-bottom:10px; }
+  .lb-row { display:flex; justify-content:space-between; font-size:14px; padding:7px 12px; border-radius:8px; margin-bottom:4px; background:rgba(138,223,255,.06); }
+  .lb-row.me { background:rgba(62,240,198,.14); border:1px solid rgba(62,240,198,.35); }
+  .lb-rank { opacity:.55; width:26px; text-align:left; }
+  .lb-name { flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:8px; }
+  .lb-score { color:#FFC24D; font-weight:600; }
+  .lb-note { margin-top:8px; font-size:11px; opacity:.5; }
+  .lb-empty { font-size:13px; opacity:.55; padding:10px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div class="hud">
+  <div class="hud-top">
+    <div>
+      <div class="score-num" id="score">0</div>
+      <div class="score-label">Devoured</div>
+    </div>
+    <div class="tier-block">
+      <div class="tier-name" id="tier">Hatchling</div>
+      <div class="tier-bar"><div class="tier-fill" id="tierfill"></div></div>
+    </div>
+  </div>
+  <div id="frenzy">FRENZY ×2</div>
+  <div id="stung">STUNG!</div>
+  <div id="announce"></div>
+  <canvas id="minimap" width="92" height="92"></canvas>
+</div>
+
+<div class="overlay" id="start">
+  <h1>APEX<br>ABYSS</h1>
+  <div class="tag">Eat &middot; Grow &middot; Survive</div>
+  <div class="rules">
+    Touch and hold — you swim toward your finger.<br>
+    Hunt <b class="eat">anything smaller</b>. Flee <b class="flee">anything bigger</b>.<br>
+    Tear through <b class="eat">schools of fish</b> for fast combos.<br>
+    Avoid <b class="sting">jellyfish</b> — their sting breaks your streak.<br>
+    Chain 5 kills for <b class="flee">FRENZY</b>.
+  </div>
+  <input id="name" maxlength="14" placeholder="Your hunter name" autocomplete="off">
+  <button class="btn" id="play">DIVE IN</button>
+  <div class="lb">
+    <div class="lb-title">GLOBAL APEX BOARD</div>
+    <div id="lb-start"><div class="lb-empty">Loading the board…</div></div>
+    <div class="lb-note" id="lb-note">Top 10 hunters on this device.</div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="death">
+  <h1 id="death-title">DEVOURED</h1>
+  <div id="final-stats"></div>
+  <button class="btn" id="again">HUNT AGAIN</button>
+  <div class="lb">
+    <div class="lb-title">GLOBAL APEX BOARD</div>
+    <div id="lb-death"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+// ================= WORLD =================
+const WORLD = 4200;
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const mm = document.getElementById('minimap');
+const mctx = mm.getContext('2d');
+let W, H, DPR;
+function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight; canvas.width=W*DPR; canvas.height=H*DPR; canvas.style.width=W+'px'; canvas.style.height=H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0); }
+resize(); addEventListener('resize', resize);
+
+// ================= AUDIO =================
+let AC=null;
+function beep(f,dur,type='sine',vol=.13,slide=0){
+  if(!AC) return;
+  try{
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type=type; o.frequency.value=f;
+    if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(40,f+slide),AC.currentTime+dur);
+    g.gain.setValueAtTime(vol,AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(.0001,AC.currentTime+dur);
+    o.connect(g); g.connect(AC.destination); o.start(); o.stop(AC.currentTime+dur);
+  }catch(e){}
+}
+
+// ================= STATE =================
+const TIERS=[
+  {name:'Hatchling',at:0},{name:'Lurker',at:8},{name:'Stalker',at:20},
+  {name:'Predator',at:40},{name:'Alpha',at:70},{name:'Leviathan',at:110},{name:'APEX',at:160}
+];
+let player, fish=[], schools=[], jellies=[], kelps=[], wrecks=[], particles=[], plankton=[], vents=[], ventBubbles=[];
+let whale=null, whaleTimer=600;
+let cam={x:0,y:0};
+let score=0, combo=0, comboTimer=0, frenzy=0, stun=0, shake=0, running=false;
+let touch={x:0,y:0,active:false};
+let survivedStart=0, myName='Hunter';
+
+const scoreEl=document.getElementById('score'), tierEl=document.getElementById('tier'),
+      tierFillEl=document.getElementById('tierfill'), frenzyEl=document.getElementById('frenzy'),
+      stungEl=document.getElementById('stung'), announceEl=document.getElementById('announce');
+
+function rnd(a,b){ return a+Math.random()*(b-a); }
+function tierIndex(){ for(let i=TIERS.length-1;i>=0;i--) if(score>=TIERS[i].at) return i; return 0; }
+function announce(t,c){ announceEl.textContent=t; announceEl.style.color=c||'#FFC24D'; announceEl.classList.remove('pop'); void announceEl.offsetWidth; announceEl.classList.add('pop'); }
+function updateHud(){
+  scoreEl.textContent=score;
+  const t=tierIndex(); tierEl.textContent=TIERS[t].name;
+  const nx=TIERS[t+1];
+  tierFillEl.style.width = nx? Math.min(100,((score-TIERS[t].at)/(nx.at-TIERS[t].at))*100)+'%':'100%';
+}
+
+// ================= LEADERBOARD (shared) =================
+const LB_KEY='apex-abyss-leaderboard-v1';
+let storageOK = typeof window.storage !== 'undefined';   // Claude artifact shared storage
+let lsOK = (()=>{ try{ localStorage.setItem('__t','1'); localStorage.removeItem('__t'); return true; }catch(e){ return false; } })();
+let memBoard = [];
+async function loadBoard(){
+  if(storageOK){
+    try{ const r=await window.storage.get(LB_KEY,true); return r&&r.value? JSON.parse(r.value):[]; }catch(e){ return []; }
+  }
+  if(lsOK){
+    try{ const v=localStorage.getItem(LB_KEY); return v? JSON.parse(v):[]; }catch(e){ return []; }
+  }
+  return memBoard;
+}
+async function saveScore(name,sc,tier){
+  const entry={name:name.slice(0,14)||'Hunter',score:sc,tier,t:Date.now()};
+  const trim=b=>{ b.push(entry); b.sort((a,b2)=>b2.score-a.score); return b.slice(0,10); };
+  if(storageOK){
+    try{
+      let b=trim(await loadBoard());
+      await window.storage.set(LB_KEY,JSON.stringify(b),true);
+      return b;
+    }catch(e){}
+  }
+  if(lsOK){
+    try{
+      let b=trim(await loadBoard());
+      localStorage.setItem(LB_KEY,JSON.stringify(b));
+      return b;
+    }catch(e){}
+  }
+  memBoard=trim(memBoard);
+  return memBoard;
+}
+function renderBoard(el,board,hl){
+  if(!board||!board.length){ el.innerHTML='<div class="lb-empty">No hunters yet. Be the first apex.</div>'; return; }
+  el.innerHTML=board.map((e,i)=>
+    `<div class="lb-row${e.t===hl?' me':''}">
+       <div class="lb-rank">${i+1}</div>
+       <div class="lb-name">${String(e.name).replace(/[<>&]/g,'')}</div>
+       <div class="lb-score">${e.score}</div>
+     </div>`).join('');
+}
+if(storageOK) document.getElementById('lb-note').textContent='Scores are shared — every player of this game sees this board.';
+loadBoard().then(b=>renderBoard(document.getElementById('lb-start'),b));
+
+// ================= SPAWN =================
+function spawnFish(nearPlayer){
+  const threat=Math.random()<0.34;
+  const pr=player? player.r:13;
+  const r= threat? pr*rnd(1.25,2.2) : Math.max(5,pr*rnd(0.28,0.9));
+  let x,y;
+  if(nearPlayer){
+    const a=Math.random()*Math.PI*2, dist=Math.hypot(W,H)/2+rnd(80,420);
+    x=player.x+Math.cos(a)*dist; y=player.y+Math.sin(a)*dist;
+  } else { x=rnd(60,WORLD-60); y=rnd(60,WORLD-60); }
+  x=Math.max(r,Math.min(WORLD-r,x)); y=Math.max(r,Math.min(WORLD-r,y));
+  const sp=(threat?0.5:0.7)*(26/(r+14))*rnd(1.3,2.4);
+  const a2=Math.random()*Math.PI*2;
+  fish.push({x,y,r,vx:Math.cos(a2)*sp,vy:Math.sin(a2)*sp,threat,
+    wob:Math.random()*7,wobS:rnd(1,3),
+    hue: threat?(Math.random()<.5?'#FF4D6A':'#FF7A4D'):(Math.random()<.6?'#FFC24D':'#8ADFFF'),
+    turn:(Math.random()-.5)*.02});
+}
+
+function spawnSchool(nearPlayer){
+  let cx,cy;
+  if(nearPlayer && player){
+    const a=Math.random()*Math.PI*2, d=Math.hypot(W,H)/2+rnd(150,500);
+    cx=player.x+Math.cos(a)*d; cy=player.y+Math.sin(a)*d;
+  } else { cx=rnd(200,WORLD-200); cy=rnd(200,WORLD-200); }
+  cx=Math.max(100,Math.min(WORLD-100,cx)); cy=Math.max(100,Math.min(WORLD-100,cy));
+  const n=12+Math.floor(Math.random()*10);
+  const hue=Math.random()<.5?'#B7F0FF':'#FFE08A';
+  const members=[];
+  const ha=Math.random()*Math.PI*2;
+  for(let i=0;i<n;i++){
+    members.push({x:cx+rnd(-60,60), y:cy+rnd(-60,60),
+      vx:Math.cos(ha)*1.4+rnd(-.3,.3), vy:Math.sin(ha)*1.4+rnd(-.3,.3),
+      wob:Math.random()*7});
+  }
+  schools.push({members, hue, r:4.5, heading:ha, htimer:rnd(120,360), panic:0});
+}
+
+function spawnJelly(){
+  jellies.push({x:rnd(150,WORLD-150), y:rnd(150,WORLD-150),
+    r:rnd(14,26), p:Math.random()*7, drift:Math.random()*7, dr:rnd(.08,.2)});
+}
+
+function burst(x,y,color,n,pow){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2,s=rnd(.5,1.5)*pow;
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,r:rnd(1.5,4.5),color});
+  }
+}
+
+function reset(){
+  player={x:WORLD/2,y:WORLD/2,r:13,vx:0,vy:0,glow:0,trail:[]};
+  cam.x=player.x-W/2; cam.y=player.y-H/2;
+  fish=[]; schools=[]; jellies=[]; particles=[]; ventBubbles=[];
+  score=0; combo=0; comboTimer=0; frenzy=0; stun=0; shake=0;
+  whale=null; whaleTimer=rnd(400,900);
+  survivedStart=performance.now();
+  for(let i=0;i<60;i++) spawnFish(false);
+  for(let i=0;i<9;i++) spawnSchool(false);
+  for(let i=0;i<16;i++) spawnJelly();
+  plankton=[]; for(let i=0;i<200;i++) plankton.push({x:rnd(0,WORLD),y:rnd(0,WORLD),r:rnd(.6,1.8),p:Math.random()*7});
+  vents=[]; for(let i=0;i<12;i++) vents.push({x:rnd(200,WORLD-200),y:rnd(200,WORLD-200),r:rnd(40,90),p:Math.random()*7});
+  kelps=[]; for(let i=0;i<26;i++){
+    const kx=rnd(80,WORLD-80), ky=rnd(80,WORLD-80), strands=3+Math.floor(Math.random()*4);
+    const cluster=[];
+    for(let s=0;s<strands;s++) cluster.push({ox:rnd(-34,34), h:rnd(70,170), p:Math.random()*7, w:rnd(4,8)});
+    kelps.push({x:kx,y:ky,cluster});
+  }
+  wrecks=[]; for(let i=0;i<3;i++) wrecks.push({x:rnd(400,WORLD-400), y:rnd(400,WORLD-400), s:rnd(.8,1.4), flip:Math.random()<.5?1:-1});
+  updateHud();
+}
+
+// ================= INPUT =================
+function setTouch(e){ const p=e.touches?e.touches[0]:e; touch.x=p.clientX; touch.y=p.clientY; touch.active=true; }
+addEventListener('touchstart', e=>{ if(running) setTouch(e); }, {passive:true});
+addEventListener('touchmove',  e=>{ if(running){ setTouch(e); e.preventDefault(); } }, {passive:false});
+addEventListener('touchend',   ()=>{ touch.active=false; }, {passive:true});
+addEventListener('pointerdown', e=>{ if(running && e.pointerType!=='touch') setTouch(e); });
+addEventListener('pointermove', e=>{ if(running && e.pointerType!=='touch' && touch.active) setTouch(e); });
+addEventListener('pointerup',   e=>{ if(e.pointerType!=='touch') touch.active=false; });
+
+// ================= LOOP =================
+let last=0;
+function loop(ts){
+  requestAnimationFrame(loop);
+  const dt=Math.min(32,ts-last)/16.67; last=ts;
+  if(!running) return;
+
+  // ---- player ----
+  const slow = stun>0? .45 : 1;
+  if(touch.active){
+    const tx=touch.x+cam.x, ty=touch.y+cam.y;
+    const dx=tx-player.x, dy=ty-player.y, d=Math.hypot(dx,dy);
+    const maxS=(3.6+Math.min(2.2,score*.01))*(frenzy>0?1.35:1)*slow*Math.pow(18/(player.r+6),.16);
+    if(d>6){ player.vx+=(dx/d)*maxS*.15*dt; player.vy+=(dy/d)*maxS*.15*dt; }
+    const sp=Math.hypot(player.vx,player.vy);
+    if(sp>maxS){ player.vx*=maxS/sp; player.vy*=maxS/sp; }
+  }
+  player.vx*=Math.pow(.94,dt); player.vy*=Math.pow(.94,dt);
+  player.x=Math.max(player.r,Math.min(WORLD-player.r,player.x+player.vx*dt));
+  player.y=Math.max(player.r,Math.min(WORLD-player.r,player.y+player.vy*dt));
+  player.trail.unshift({x:player.x,y:player.y});
+  if(player.trail.length>14) player.trail.pop();
+  player.glow=Math.max(0,player.glow-.03*dt);
+
+  cam.x += (player.x-W/2-cam.x)*Math.min(1,.09*dt);
+  cam.y += (player.y-H/2-cam.y)*Math.min(1,.09*dt);
+  cam.x=Math.max(0,Math.min(WORLD-W,cam.x));
+  cam.y=Math.max(0,Math.min(WORLD-H,cam.y));
+
+  if(comboTimer>0){ comboTimer-=dt; if(comboTimer<=0) combo=0; }
+  if(frenzy>0){ frenzy-=dt; if(frenzy<=0) frenzyEl.style.opacity=0; }
+  if(stun>0){ stun-=dt; if(stun<=0) stungEl.style.opacity=0; }
+
+  // ---- population ----
+  const near = fish.filter(f=>Math.abs(f.x-player.x)<W && Math.abs(f.y-player.y)<H).length;
+  if(near<12) spawnFish(true);
+  if(fish.length<60) spawnFish(false);
+  if(schools.length<9) spawnSchool(true);
+  if(jellies.length<16) spawnJelly();
+
+  // ---- solo fish ----
+  for(let i=fish.length-1;i>=0;i--){
+    const f=fish[i];
+    f.wob+=.08*f.wobS*dt;
+    const dx=player.x-f.x, dy=player.y-f.y, d=Math.hypot(dx,dy)||1;
+    if(f.threat && d<300){ f.vx+=(dx/d)*.03*dt; f.vy+=(dy/d)*.03*dt; }
+    else if(!f.threat && d<150 && f.r<player.r){ f.vx-=(dx/d)*.055*dt; f.vy-=(dy/d)*.055*dt; }
+    const a=Math.atan2(f.vy,f.vx)+f.turn*dt, s=Math.hypot(f.vx,f.vy);
+    f.vx=Math.cos(a)*s; f.vy=Math.sin(a)*s;
+    f.x+=f.vx*dt; f.y+=f.vy*dt;
+    if(f.x<f.r||f.x>WORLD-f.r){ f.vx*=-1; f.x=Math.max(f.r,Math.min(WORLD-f.r,f.x)); }
+    if(f.y<f.r||f.y>WORLD-f.r){ f.vy*=-1; f.y=Math.max(f.r,Math.min(WORLD-f.r,f.y)); }
+
+    if(d < player.r+f.r*.82){
+      if(f.r < player.r*.96){ fish.splice(i,1); eat(f.x,f.y,f.r,f.hue); }
+      else if(f.r > player.r*1.08){ die(); return; }
+    }
+  }
+
+  // ---- schools (boids) ----
+  for(let si=schools.length-1; si>=0; si--){
+    const sc=schools[si];
+    const M=sc.members;
+    if(!M.length){ schools.splice(si,1); continue; }
+    // school heading changes occasionally
+    sc.htimer-=dt;
+    if(sc.htimer<=0){ sc.heading+=rnd(-1.2,1.2); sc.htimer=rnd(120,360); }
+    // center of mass
+    let cx=0, cy=0;
+    M.forEach(m=>{ cx+=m.x; cy+=m.y; });
+    cx/=M.length; cy/=M.length;
+    // panic if player is close and big enough to eat them
+    const pd=Math.hypot(player.x-cx,player.y-cy);
+    sc.panic = (pd<200 && player.r>sc.r*1.2)? 1 : Math.max(0, sc.panic-.02*dt);
+    const spd = sc.panic>0? 2.6 : 1.3;
+
+    for(let mi=M.length-1; mi>=0; mi--){
+      const m=M[mi];
+      // cohesion toward center
+      let ax=(cx-m.x)*.0018, ay=(cy-m.y)*.0018;
+      // heading alignment
+      ax+=Math.cos(sc.heading)*.02; ay+=Math.sin(sc.heading)*.02;
+      // separation from nearest neighbor (sampled: check 2 random members)
+      for(let k=0;k<2;k++){
+        const o=M[(mi+1+Math.floor(Math.random()*(M.length-1)))%M.length];
+        const ox=m.x-o.x, oy=m.y-o.y, od=Math.hypot(ox,oy);
+        if(od>0 && od<14){ ax+=ox/od*.06; ay+=oy/od*.06; }
+      }
+      // flee player
+      if(sc.panic>0){
+        const fx=m.x-player.x, fy=m.y-player.y, fd=Math.hypot(fx,fy)||1;
+        if(fd<230){ ax+=fx/fd*.12; ay+=fy/fd*.12; }
+      }
+      m.vx+=ax*dt; m.vy+=ay*dt;
+      const ms=Math.hypot(m.vx,m.vy)||.001;
+      if(ms>spd){ m.vx*=spd/ms; m.vy*=spd/ms; }
+      m.x+=m.vx*dt; m.y+=m.vy*dt; m.wob+=.25*dt;
+      if(m.x<20||m.x>WORLD-20) m.vx*=-1;
+      if(m.y<20||m.y>WORLD-20) m.vy*=-1;
+
+      // eaten? schools are always edible once you're bigger than a member
+      const ed=Math.hypot(player.x-m.x, player.y-m.y);
+      if(ed<player.r+sc.r && player.r>sc.r*1.2){
+        M.splice(mi,1);
+        eat(m.x,m.y,sc.r,sc.hue,true);
+      }
+    }
+  }
+
+  // ---- jellyfish ----
+  jellies.forEach(j=>{
+    j.p+=.045*dt; j.drift+=j.dr*.01*dt;
+    j.x+=Math.cos(j.drift)*.25*dt;
+    j.y+=Math.sin(j.p*.5)*.2*dt - .12*dt; // slow upward drift
+    if(j.y<j.r) j.y=WORLD-j.r;
+    if(j.x<j.r) j.x=WORLD-j.r; if(j.x>WORLD-j.r) j.x=j.r;
+    const d=Math.hypot(player.x-j.x, player.y-j.y);
+    if(d < player.r+j.r*.8 && stun<=0){
+      if(player.r > j.r*2.2){
+        // big enough to eat jellies whole
+        j.x=rnd(150,WORLD-150); j.y=rnd(150,WORLD-150);
+        eat(player.x,player.y,j.r,'#C88AFF');
+      } else {
+        // sting: knockback, break combo, brief slow
+        stun=90; stungEl.style.opacity=1;
+        combo=0; comboTimer=0;
+        const kx=(player.x-j.x)/d, ky=(player.y-j.y)/d;
+        player.vx+=kx*7; player.vy+=ky*7;
+        burst(player.x,player.y,'#C88AFF',16,3);
+        beep(140,.3,'sawtooth',.14,-60);
+        if(navigator.vibrate) navigator.vibrate([50,30,50]);
+        shake=8;
+      }
+    }
+  });
+
+  // ---- whale (ambient background giant) ----
+  whaleTimer-=dt;
+  if(!whale && whaleTimer<=0){
+    const fromLeft=Math.random()<.5;
+    whale={x: fromLeft? cam.x-600 : cam.x+W+600,
+           y: cam.y+rnd(H*.15,H*.7),
+           vx: fromLeft? .55 : -.55, t:0};
+  }
+  if(whale){
+    whale.x+=whale.vx*dt; whale.t+=.02*dt;
+    if(whale.x<cam.x-900||whale.x>cam.x+W+900){ whale=null; whaleTimer=rnd(700,1600); }
+  }
+
+  // ---- vent bubbles ----
+  if(Math.random()<.3*dt){
+    const v=vents[Math.floor(Math.random()*vents.length)];
+    ventBubbles.push({x:v.x+rnd(-14,14), y:v.y, r:rnd(1.5,4), life:1, s:rnd(.5,1.1)});
+  }
+  for(let i=ventBubbles.length-1;i>=0;i--){
+    const b=ventBubbles[i];
+    b.y-=b.s*dt; b.x+=Math.sin(b.y*.05)*.3*dt; b.life-=.006*dt;
+    if(b.life<=0) ventBubbles.splice(i,1);
+  }
+
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx*dt; p.y+=p.vy*dt; p.vx*=.96; p.vy*=.96; p.life-=.03*dt;
+    if(p.life<=0) particles.splice(i,1);
+  }
+  if(shake>0) shake=Math.max(0,shake-.8*dt);
+
+  render(ts);
+  renderMinimap();
+}
+
+function eat(x,y,r,hue,small){
+  score++; if(frenzy>0) score++;
+  combo++; comboTimer=120;
+  player.r=Math.min(78, player.r+Math.max(small?.25:.5, r*.13));
+  player.glow=1; shake=Math.min(10,3+r*.14);
+  burst(x,y,hue,small?6:10+Math.floor(r*.5),small?1.6:2+r*.07);
+  beep(small?320+Math.random()*120:220+Math.random()*80,.08,'square',.1,-120);
+  if(navigator.vibrate) navigator.vibrate(small?8:12);
+  if(combo===5){ frenzy=300; frenzyEl.style.opacity=1; announce('FRENZY','#FF4D6A'); beep(520,.25,'sawtooth',.13,300); if(navigator.vibrate) navigator.vibrate([30,40,30]); }
+  const tb=tierEl.textContent; updateHud();
+  if(tierEl.textContent!==tb){ announce(tierEl.textContent.toUpperCase()); beep(660,.3,'triangle',.15,220); shake=12; burst(player.x,player.y,'#3EF0C6',30,4); if(navigator.vibrate) navigator.vibrate([20,30,20,30,60]); }
+}
+
+async function die(){
+  running=false;
+  burst(player.x,player.y,'#3EF0C6',50,5);
+  beep(180,.5,'sawtooth',.16,-140);
+  if(navigator.vibrate) navigator.vibrate([60,50,120]);
+  shake=16; render(performance.now());
+  const secs=Math.round((performance.now()-survivedStart)/1000);
+  document.getElementById('final-stats').innerHTML=
+    `Devoured <span>${score}</span> creatures<br>Reached <span>${TIERS[tierIndex()].name}</span> · Survived <span>${secs}s</span>`;
+  setTimeout(()=>document.getElementById('death').classList.remove('hidden'),500);
+  const board=await saveScore(myName,score,TIERS[tierIndex()].name);
+  const mine=board.find(e=>e.name===myName.slice(0,14)&&e.score===score);
+  renderBoard(document.getElementById('lb-death'),board,mine?mine.t:-1);
+}
+
+// ================= DRAW HELPERS =================
+function drawFish(x,y,r,ang,color,wob,threat){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
+  const tail=Math.sin(wob*3)*r*.35;
+  ctx.fillStyle=color; ctx.globalAlpha=.85;
+  ctx.beginPath(); ctx.moveTo(-r*.7,0); ctx.lineTo(-r*1.5,-r*.5+tail); ctx.lineTo(-r*1.5,r*.5+tail); ctx.closePath(); ctx.fill();
+  ctx.globalAlpha=1;
+  ctx.beginPath(); ctx.ellipse(0,0,r,r*.68,0,0,7); ctx.fill();
+  ctx.globalAlpha=.25; ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.ellipse(r*.15,-r*.18,r*.55,r*.3,0,0,7); ctx.fill();
+  ctx.globalAlpha=1;
+  ctx.fillStyle='#04101E';
+  ctx.beginPath(); ctx.arc(r*.45,-r*.12,Math.max(1.4,r*.14),0,7); ctx.fill();
+  ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.arc(r*.48,-r*.15,Math.max(.6,r*.05),0,7); ctx.fill();
+  if(threat){
+    ctx.fillStyle='#fff';
+    for(let i=0;i<3;i++){
+      ctx.beginPath();
+      ctx.moveTo(r*.75-i*r*.16,r*.2); ctx.lineTo(r*.68-i*r*.16,r*.45); ctx.lineTo(r*.6-i*r*.16,r*.2);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawTinyFish(x,y,r,ang,color,wob){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
+  const tail=Math.sin(wob)*r*.5;
+  ctx.fillStyle=color;
+  ctx.beginPath(); ctx.ellipse(0,0,r,r*.55,0,0,7); ctx.fill();
+  ctx.globalAlpha=.8;
+  ctx.beginPath(); ctx.moveTo(-r*.6,0); ctx.lineTo(-r*1.4,-r*.5+tail); ctx.lineTo(-r*1.4,r*.5+tail); ctx.closePath(); ctx.fill();
+  ctx.globalAlpha=1;
+  ctx.restore();
+}
+
+function drawJelly(j,ts){
+  const pulse=Math.sin(j.p)* .5 + .5;              // 0..1
+  const bw=j.r*(1+pulse*.18), bh=j.r*(.75+pulse*.28);
+  ctx.save(); ctx.translate(j.x,j.y);
+  ctx.shadowColor='#C88AFF'; ctx.shadowBlur=16;
+  // bell
+  const g=ctx.createRadialGradient(0,-bh*.2,2, 0,0,bw);
+  g.addColorStop(0,'rgba(232,206,255,.85)');
+  g.addColorStop(.7,'rgba(200,138,255,.45)');
+  g.addColorStop(1,'rgba(200,138,255,.05)');
+  ctx.fillStyle=g;
+  ctx.beginPath();
+  ctx.moveTo(-bw,0);
+  ctx.quadraticCurveTo(-bw,-bh*1.5, 0,-bh*1.5);
+  ctx.quadraticCurveTo(bw,-bh*1.5, bw,0);
+  ctx.quadraticCurveTo(bw*.5,bh*.25, 0,bh*.1);
+  ctx.quadraticCurveTo(-bw*.5,bh*.25, -bw,0);
+  ctx.fill();
+  ctx.shadowBlur=0;
+  // tentacles
+  ctx.strokeStyle='rgba(200,138,255,.5)'; ctx.lineWidth=1.4;
+  for(let t=0;t<5;t++){
+    const tx=(t-2)*bw*.36;
+    const sw=Math.sin(j.p*1.3+t)*6;
+    ctx.beginPath();
+    ctx.moveTo(tx,bh*.05);
+    ctx.quadraticCurveTo(tx+sw, bh*1.1, tx+sw*1.6, bh*2+pulse*6);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawKelp(k,ts){
+  k.cluster.forEach(s=>{
+    s.p+=.015;
+    const bx=k.x+s.ox;
+    const sway1=Math.sin(s.p)*14, sway2=Math.sin(s.p*1.4+1)*22;
+    const grad=ctx.createLinearGradient(bx,k.y,bx,k.y-s.h);
+    grad.addColorStop(0,'rgba(30,120,90,.85)');
+    grad.addColorStop(1,'rgba(62,240,198,.35)');
+    ctx.strokeStyle=grad; ctx.lineWidth=s.w; ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(bx,k.y);
+    ctx.bezierCurveTo(bx+sway1*.4, k.y-s.h*.4, bx+sway1, k.y-s.h*.7, bx+sway2, k.y-s.h);
+    ctx.stroke();
+    // leaf blades
+    ctx.fillStyle='rgba(62,240,198,.25)';
+    ctx.beginPath();
+    ctx.ellipse(bx+sway2, k.y-s.h, s.w*1.6, s.w*.7, sway2*.02, 0, 7);
+    ctx.fill();
+  });
+  ctx.lineCap='butt';
+}
+
+function drawWreck(w){
+  ctx.save();
+  ctx.translate(w.x,w.y); ctx.scale(w.s*w.flip,w.s); ctx.rotate(-.12);
+  ctx.fillStyle='rgba(10,36,56,.9)';
+  ctx.strokeStyle='rgba(138,223,255,.22)'; ctx.lineWidth=2;
+  // hull
+  ctx.beginPath();
+  ctx.moveTo(-130,0);
+  ctx.quadraticCurveTo(-90,52, 0,56);
+  ctx.quadraticCurveTo(95,52, 140,8);
+  ctx.lineTo(120,-6); ctx.lineTo(-120,-6);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // broken masts
+  ctx.strokeStyle='rgba(138,223,255,.28)'; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.moveTo(-40,-6); ctx.lineTo(-58,-86); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(48,-6); ctx.lineTo(60,-52); ctx.stroke();
+  // torn sail
+  ctx.fillStyle='rgba(191,232,224,.08)';
+  ctx.beginPath();
+  ctx.moveTo(-58,-86); ctx.quadraticCurveTo(-14,-66,-46,-30); ctx.closePath(); ctx.fill();
+  // hull hole
+  ctx.fillStyle='rgba(2,8,16,.9)';
+  ctx.beginPath(); ctx.ellipse(20,26,26,15,.2,0,7); ctx.fill();
+  ctx.restore();
+}
+
+function drawWhale(ts){
+  if(!whale) return;
+  ctx.save();
+  ctx.translate(whale.x,whale.y);
+  if(whale.vx<0) ctx.scale(-1,1);
+  ctx.globalAlpha=.24;
+  ctx.fillStyle='#0F3A56';
+  const b=Math.sin(whale.t)*8;
+  // body
+  ctx.beginPath();
+  ctx.moveTo(-260,b);
+  ctx.quadraticCurveTo(-140,-90+b, 60,-64+b);
+  ctx.quadraticCurveTo(200,-40+b, 240,b);
+  ctx.quadraticCurveTo(180,44+b, 40,52+b);
+  ctx.quadraticCurveTo(-140,60+b, -260,b);
+  ctx.fill();
+  // tail
+  const tl=Math.sin(whale.t*1.6)*24;
+  ctx.beginPath();
+  ctx.moveTo(-250,b);
+  ctx.quadraticCurveTo(-330,-50+b+tl, -370,-30+b+tl);
+  ctx.quadraticCurveTo(-320,b, -370,30+b+tl);
+  ctx.quadraticCurveTo(-330,50+b+tl, -250,b);
+  ctx.fill();
+  // fin
+  ctx.beginPath();
+  ctx.moveTo(0,30+b);
+  ctx.quadraticCurveTo(-30,90+b, -70,84+b);
+  ctx.quadraticCurveTo(-30,50+b, 0,30+b);
+  ctx.fill();
+  // eye
+  ctx.globalAlpha=.4;
+  ctx.fillStyle='#8ADFFF';
+  ctx.beginPath(); ctx.arc(170,-8+b,4,0,7); ctx.fill();
+  ctx.restore();
+  ctx.globalAlpha=1;
+}
+
+// ================= RENDER =================
+function render(ts){
+  ctx.save();
+  if(shake>0) ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);
+
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#0A2438'); g.addColorStop(.55,'#04101E'); g.addColorStop(1,'#020810');
+  ctx.fillStyle=g; ctx.fillRect(-20,-20,W+40,H+40);
+
+  ctx.globalAlpha=.05; ctx.fillStyle='#8ADFFF';
+  for(let i=0;i<4;i++){
+    const rx=((W*.28*i+ts*.008-cam.x*.06)%(W*1.4)+W*1.4)%(W*1.4)-W*.2;
+    ctx.beginPath();
+    ctx.moveTo(rx,0); ctx.lineTo(rx+70,0); ctx.lineTo(rx-60,H); ctx.lineTo(rx-130,H);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+
+  ctx.translate(-cam.x,-cam.y);
+
+  // whale (far background, behind everything in world)
+  drawWhale(ts);
+
+  // world border
+  ctx.strokeStyle='rgba(255,77,106,.5)'; ctx.lineWidth=4;
+  ctx.strokeRect(2,2,WORLD-4,WORLD-4);
+  ctx.strokeStyle='rgba(255,77,106,.12)'; ctx.lineWidth=26;
+  ctx.strokeRect(2,2,WORLD-4,WORLD-4);
+  ctx.lineWidth=1;
+
+  const vis = (o,pad=100) => o.x>cam.x-60-pad && o.x<cam.x+W+60+pad && o.y>cam.y-60-pad && o.y<cam.y+H+60+pad;
+
+  // wrecks
+  wrecks.forEach(w=>{ if(vis(w,320)) drawWreck(w); });
+
+  // vents + bubbles
+  vents.forEach(v=>{
+    if(!vis(v)) return;
+    v.p+=.02;
+    ctx.globalAlpha=.16; ctx.fillStyle='#3EF0C6';
+    ctx.beginPath(); ctx.arc(v.x,v.y,v.r+Math.sin(v.p)*6,0,7); ctx.fill();
+    ctx.globalAlpha=.4; ctx.strokeStyle='#3EF0C6';
+    ctx.beginPath(); ctx.arc(v.x,v.y,v.r*.55,0,7); ctx.stroke();
+    ctx.globalAlpha=1;
+  });
+  ctx.strokeStyle='rgba(138,223,255,.3)';
+  ventBubbles.forEach(b=>{
+    if(!vis(b)) return;
+    ctx.globalAlpha=b.life*.7;
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.stroke();
+  });
+  ctx.globalAlpha=1;
+
+  // kelp (behind creatures)
+  kelps.forEach(k=>{ if(vis(k,220)) drawKelp(k,ts); });
+
+  // plankton
+  plankton.forEach(p=>{
+    if(!vis(p)) return;
+    p.p+=.02;
+    ctx.globalAlpha=.25+Math.sin(p.p)*.15;
+    ctx.fillStyle='#8ADFFF';
+    ctx.beginPath(); ctx.arc(p.x,p.y+Math.sin(p.p)*4,p.r,0,7); ctx.fill();
+  });
+  ctx.globalAlpha=1;
+
+  // schools
+  schools.forEach(sc=>{
+    sc.members.forEach(m=>{
+      if(!vis(m)) return;
+      drawTinyFish(m.x,m.y,sc.r,Math.atan2(m.vy,m.vx),sc.hue,m.wob);
+    });
+  });
+
+  // solo fish
+  fish.forEach(f=>{ if(vis(f)) drawFish(f.x,f.y,f.r,Math.atan2(f.vy,f.vx),f.hue,f.wob,f.threat); });
+
+  // jellyfish (in front of fish, glowing)
+  jellies.forEach(j=>{ if(vis(j,80)) drawJelly(j,ts); });
+
+  // player trail
+  for(let i=player.trail.length-1;i>0;i--){
+    const t=player.trail[i], a=1-i/player.trail.length;
+    ctx.globalAlpha=a*.14;
+    ctx.fillStyle= stun>0? '#C88AFF' : frenzy>0?'#FF4D6A':'#3EF0C6';
+    ctx.beginPath(); ctx.arc(t.x,t.y,player.r*a,0,7); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+
+  // player
+  const col= stun>0? '#C88AFF' : frenzy>0?'#FF4D6A':'#3EF0C6';
+  ctx.shadowColor=col; ctx.shadowBlur=22+player.glow*26;
+  drawFish(player.x,player.y,player.r,Math.atan2(player.vy,player.vx)||-Math.PI/2,col,ts*.01,false);
+  ctx.shadowBlur=0;
+
+  // particles
+  particles.forEach(p=>{
+    ctx.globalAlpha=p.life; ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r*p.life,0,7); ctx.fill();
+  });
+  ctx.globalAlpha=1;
+
+  if(combo>1){
+    ctx.font='800 15px "Archivo Black"';
+    ctx.fillStyle='rgba(255,194,77,.9)'; ctx.textAlign='center';
+    ctx.fillText('×'+combo, player.x, player.y-player.r-14);
+  }
+
+  ctx.restore();
+}
+
+function renderMinimap(){
+  const s=92/WORLD;
+  mctx.clearRect(0,0,92,92);
+  mctx.fillStyle='rgba(4,16,30,.4)'; mctx.fillRect(0,0,92,92);
+  fish.forEach(f=>{
+    if(!f.threat) return;
+    mctx.fillStyle='rgba(255,77,106,.8)';
+    mctx.fillRect(f.x*s-1,f.y*s-1,2,2);
+  });
+  // schools as faint gold blips
+  mctx.fillStyle='rgba(255,224,138,.5)';
+  schools.forEach(sc=>{
+    if(!sc.members.length) return;
+    const m=sc.members[0];
+    mctx.fillRect(m.x*s-1,m.y*s-1,2,2);
+  });
+  mctx.strokeStyle='rgba(138,223,255,.5)';
+  mctx.strokeRect(cam.x*s,cam.y*s,W*s,H*s);
+  mctx.fillStyle='#3EF0C6';
+  mctx.beginPath(); mctx.arc(player.x*s,player.y*s,3,0,7); mctx.fill();
+}
+
+// ================= FLOW =================
+function start(){
+  if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(AC && AC.state==='suspended') AC.resume();
+  const nm=document.getElementById('name').value.trim();
+  if(nm) myName=nm;
+  reset();
+  document.getElementById('start').classList.add('hidden');
+  document.getElementById('death').classList.add('hidden');
+  running=true; touch.active=false;
+}
+document.getElementById('play').addEventListener('click', start);
+document.getElementById('again').addEventListener('click', start);
+
+reset();
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
