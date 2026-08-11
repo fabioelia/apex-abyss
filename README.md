@@ -4,8 +4,10 @@ A mobile-first eat-and-grow arcade game set in a bioluminescent deep sea.
 
 **Play:** https://fabioelia.github.io/apex-abyss/
 
-- Drag anywhere — a floating joystick appears under your thumb (mouse-follow on desktop)
+- Drag anywhere — a floating joystick appears under your thumb (WASD/arrows or mouse on desktop)
 - Eat anything smaller, flee anything bigger
+- A living food web: fish eat fish, grow, and can turn on you when they outgrow you
+- Procedural deep-sea soundtrack — drone, ambient pad, sonar bells, frenzy heartbeat (♪ to mute)
 - Tear through schools of fish for fast combos; 5-kill chains trigger FRENZY
 - Avoid jellyfish stings (until you're big enough to eat them)
 - Climb 7 tiers from Hatchling to APEX

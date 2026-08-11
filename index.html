@@ -45,6 +45,7 @@
   .btn:active { transform:scale(.94); }
   .btn2 { background:rgba(62,240,198,.1); color:#3EF0C6; border:1.5px solid rgba(62,240,198,.5); box-shadow:none; font-size:15px; padding:13px 40px; margin-top:12px; }
   #pausebtn { pointer-events:auto; position:absolute; top:calc(8px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); width:42px; height:42px; border-radius:50%; border:1px solid rgba(138,223,255,.3); background:rgba(4,16,30,.55); color:#8ADFFF; font-size:13px; letter-spacing:2px; text-indent:2px; cursor:pointer; display:none; }
+  #musicbtn { pointer-events:auto; position:absolute; top:calc(8px + env(safe-area-inset-top)); left:calc(50% - 54px); transform:translateX(-50%); width:42px; height:42px; border-radius:50%; border:1px solid rgba(138,223,255,.3); background:rgba(4,16,30,.55); color:#8ADFFF; font-size:17px; cursor:pointer; display:none; }
   #death-title { color:#FF4D6A; text-shadow:0 0 40px rgba(255,77,106,.6); }
   #final-stats { margin-top:10px; font-size:14px; line-height:1.9; opacity:.85; }
   #final-stats span { color:#FFC24D; font-weight:600; }
@@ -100,6 +101,7 @@
   <canvas id="minimap" width="92" height="92"></canvas>
   <div id="live-pill"></div>
   <button id="pausebtn" aria-label="Pause">❚❚</button>
+  <button id="musicbtn" aria-label="Toggle music">♪</button>
 </div>
 
 <div id="joy"><div class="base"></div><div class="knob"></div></div>
@@ -110,8 +112,9 @@
     <div class="tag">Eat &middot; Grow &middot; Survive</div>
     <div class="rules">
       Drag anywhere — a joystick appears under your thumb.<br>
-      (On desktop, hold the mouse and swim toward it.)<br>
+      (Desktop: WASD / arrows, or hold the mouse.)<br>
       Hunt <b class="eat">anything smaller</b>. Flee <b class="flee">anything bigger</b>.<br>
+      The abyss hunts itself — <b class="flee">rivals eat and grow too</b>.<br>
       Avoid <b class="sting">jellyfish</b> — their sting breaks your streak.<br>
       Chain 5 kills for <b class="flee">FRENZY</b>.
     </div>
@@ -147,6 +150,7 @@
   <h1 id="pause-title">PAUSED</h1>
   <button class="btn" id="resume">RESUME</button>
   <button class="btn btn2" id="restart">RESTART RUN</button>
+  <button class="btn btn2" id="musictoggle">MUSIC: ON</button>
   <button class="btn btn2" id="exitmenu">MAIN MENU</button>
 </div>
 
@@ -280,6 +284,73 @@ function renderBoard(el,board,hl){
 if(BACKEND_URL) document.getElementById('lb-note').textContent='One global board — every hunter, every device.';
 else if(storageOK) document.getElementById('lb-note').textContent='Scores are shared — every player of this game sees this board.';
 loadBoard().then(b=>renderBoard(document.getElementById('lb-start'),b));
+
+// ================= MUSIC =================
+// Fully procedural deep-sea score — no audio files, stays single-file.
+// Layers: detuned sub drone (A1), a slow 4-chord ambient pad (~21s loop),
+// sparse pentatonic "sonar bells" through a feedback echo, and during
+// FRENZY a low heartbeat pulse + brighter lowpass. Lookahead scheduler
+// keeps timing solid even when the tab hiccups.
+let music={ on:(lsOK? localStorage.getItem('apex-abyss-music')!=='0' : true), started:false, gain:null, filt:null, echo:null, nextBar:0, bar:0 };
+const CHORDS=[[0,3,7,14],[-4,0,3,7],[3,7,10,14],[-2,2,5,12]];   // Am9 F Cmaj7 Gadd9 (semitones from A2)
+const PENTA=[12,15,17,19,22,24,27];
+function nfreq(semi){ return 110*Math.pow(2,semi/12); }
+function mnote(freq,t,dur,type,vol,toEcho){
+  try{
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type=type; o.frequency.value=freq;
+    g.gain.setValueAtTime(.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol,t+dur*.3);
+    g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(g); g.connect(music.gain);
+    if(toEcho) g.connect(music.echo);
+    o.start(t); o.stop(t+dur+.1);
+  }catch(e){}
+}
+function startMusic(){
+  if(music.started || !AC) return;
+  music.started=true;
+  try{
+    music.gain=AC.createGain(); music.gain.gain.value=.0001;
+    music.filt=AC.createBiquadFilter(); music.filt.type='lowpass'; music.filt.frequency.value=900; music.filt.Q.value=.6;
+    music.gain.connect(music.filt); music.filt.connect(AC.destination);
+    music.echo=AC.createDelay(1); music.echo.delayTime.value=.42;
+    const eg=AC.createGain(); eg.gain.value=.34;
+    music.echo.connect(eg); eg.connect(music.echo); eg.connect(music.gain);
+    [55,55.6].forEach(fq=>{   // eternal drone, two oscillators a hair apart
+      const o=AC.createOscillator(), g=AC.createGain();
+      o.type='sine'; o.frequency.value=fq; g.gain.value=.15;
+      o.connect(g); g.connect(music.gain); o.start();
+    });
+    music.nextBar=AC.currentTime+.1;
+    setInterval(scheduleMusic,400);
+    scheduleMusic();
+  }catch(e){ music.started=false; }
+}
+function scheduleMusic(){
+  if(!AC || !music.gain) return;
+  const BAR=5.2;
+  while(music.nextBar < AC.currentTime+1.3){
+    const t=music.nextBar, ch=CHORDS[music.bar%CHORDS.length];
+    ch.forEach((s2,ix)=>mnote(nfreq(s2), t+ix*.06, BAR*1.05, 'triangle', .05));
+    const bells=(frenzy>0?3:(Math.random()<.65?1:0))+(Math.random()<.25?1:0);
+    for(let b=0;b<bells;b++)
+      mnote(nfreq(PENTA[Math.floor(Math.random()*PENTA.length)]), t+rnd(0,BAR*.8), 2.6, 'sine', .075, true);
+    if(frenzy>0) for(let p=0;p<8;p++) mnote(55, t+p*.65, .3, 'sine', .14);
+    music.bar++; music.nextBar+=BAR;
+  }
+  // duck in menus/pause, brighten + swell during frenzy, silence when muted
+  const target=!music.on? .0001 : (running&&!paused? (frenzy>0?.4:.3) : .15);
+  music.gain.gain.setTargetAtTime(target, AC.currentTime, .6);
+  music.filt.frequency.setTargetAtTime(frenzy>0?2200:900, AC.currentTime, .5);
+}
+function toggleMusic(){
+  music.on=!music.on;
+  if(lsOK) try{ localStorage.setItem('apex-abyss-music', music.on?'1':'0'); }catch(e){}
+  musicBtn.style.opacity=music.on?1:.35;
+  document.getElementById('musictoggle').textContent='MUSIC: '+(music.on?'ON':'OFF');
+  if(music.started) scheduleMusic();
+}
 
 // ================= LIVE PRESENCE =================
 // Best-effort "who's online": heartbeat {id,name,score} every 5s into the
@@ -489,7 +560,7 @@ function joyGhost(){
 }
 addEventListener('touchstart', e=>{
   if(!running || paused || joy.active) return;
-  if(e.target && e.target.id==='pausebtn') return;
+  if(e.target && (e.target.id==='pausebtn' || e.target.id==='musicbtn')) return;
   const t=e.changedTouches[0];
   joy.active=true; joy.id=t.identifier;
   joy.bx=t.clientX; joy.by=t.clientY; joy.dx=joy.dy=0;
@@ -518,6 +589,17 @@ addEventListener('touchcancel', joyEnd, {passive:true});
 addEventListener('pointerdown', e=>{ if(running && !paused && e.pointerType!=='touch'){ mouse.x=e.clientX; mouse.y=e.clientY; mouse.active=true; } });
 addEventListener('pointermove', e=>{ if(running && !paused && e.pointerType!=='touch' && mouse.active){ mouse.x=e.clientX; mouse.y=e.clientY; } });
 addEventListener('pointerup',   e=>{ if(e.pointerType!=='touch') mouse.active=false; });
+// keyboard: WASD / arrows
+const keys={};
+const KEYMAP={w:'u',arrowup:'u',s:'d',arrowdown:'d',a:'l',arrowleft:'l',d:'r',arrowright:'r'};
+addEventListener('keydown', e=>{
+  const k=KEYMAP[e.key.toLowerCase()];
+  if(!k) return;
+  keys[k]=true;
+  if(running && !paused) e.preventDefault();
+});
+addEventListener('keyup', e=>{ const k=KEYMAP[e.key.toLowerCase()]; if(k) keys[k]=false; });
+addEventListener('blur', ()=>{ for(const k in keys) keys[k]=false; });
 
 // ================= LOOP =================
 let last=0, frameCount=0, frameAvg=16.7, qCool=0, nearFish=12;
@@ -539,9 +621,13 @@ function loop(ts){
   const slow = stun>0? .45 : 1;
   const maxS=(3.6+Math.min(2.2,score*.01))*(frenzy>0?1.35:1)*slow*Math.pow(18/(player.r+6),.16);
   let dirX=0, dirY=0, drive=0;
+  const kx=(keys.r?1:0)-(keys.l?1:0), ky=(keys.d?1:0)-(keys.u?1:0);
   if(joy.active){
     const m=Math.hypot(joy.dx,joy.dy);
     if(m>JOY_DEAD){ dirX=joy.dx/m; dirY=joy.dy/m; drive=Math.min(1,(m-JOY_DEAD)/(1-JOY_DEAD)); }
+  } else if(kx||ky){
+    const kd=Math.hypot(kx,ky);
+    dirX=kx/kd; dirY=ky/kd; drive=1;
   } else if(mouse.active){
     const dx=mouse.x+cam.x-player.x, dy=mouse.y+cam.y-player.y, d=Math.hypot(dx,dy);
     if(d>6){ dirX=dx/d; dirY=dy/d; drive=1; }
@@ -593,8 +679,40 @@ function loop(ts){
     const dx=-ddx, dy=-ddy, d=Math.sqrt(d2)||1;
     if(f.threat && d<300){ f.vx+=(dx/d)*.03*dt; f.vy+=(dy/d)*.03*dt; }
     else if(!f.threat && d<150 && f.r<player.r){ f.vx-=(dx/d)*.055*dt; f.vy-=(dy/d)*.055*dt; }
+
+    // the abyss hunts itself: fish eat smaller fish and grow. A fish that
+    // outgrows the player turns predator — red, toothed, and hunting you.
+    if(!f.threat && f.r>player.r*1.05){
+      f.threat=true;
+      f.hue=Math.random()<.5?'#FF4D6A':'#FF7A4D';
+    }
+    // staggered scan: each fish hunts every 4th frame, so the whole food
+    // web costs ~n²/4 cheap box-checks spread across frames
+    if(((i+frameCount)&3)===0){
+      let bestD=1e9, prey=null, preyIdx=-1, hx=0, hy=0;
+      for(let k=fish.length-1;k>=0;k--){
+        if(k===i) continue;
+        const o=fish[k];
+        const odx=o.x-f.x, ody=o.y-f.y;
+        if(odx>260||odx<-260||ody>260||ody<-260) continue;
+        const od=Math.hypot(odx,ody)||1;
+        if(o.r<f.r*.8){ if(od<bestD){ bestD=od; prey=o; preyIdx=k; hx=odx/od; hy=ody/od; } }
+        else if(o.r>f.r*1.25 && od<190){ f.vx-=odx/od*.1; f.vy-=ody/od*.1; }  // flee bigger rivals
+      }
+      if(prey){
+        if(bestD < f.r*.9+prey.r*.4){
+          f.r=Math.min(110, f.r+prey.r*.16);
+          if(Math.abs(prey.x-player.x)<W && Math.abs(prey.y-player.y)<H) burst(prey.x,prey.y,prey.hue,6,1.5);
+          fish.splice(preyIdx,1);
+          if(preyIdx<i) i--;   // our own index shifted down one
+        } else { f.vx+=hx*.1; f.vy+=hy*.1; }
+      }
+    }
+
     const a=Math.atan2(f.vy,f.vx)+f.turn*dt, s=Math.hypot(f.vx,f.vy);
     f.vx=Math.cos(a)*s; f.vy=Math.sin(a)*s;
+    // hunting adds thrust every scan — cap speed so nothing snowballs
+    if(s>4.2){ f.vx*=4.2/s; f.vy*=4.2/s; }
     f.x+=f.vx*dt; f.y+=f.vy*dt;
     if(f.x<f.r||f.x>WORLD-f.r){ f.vx*=-1; f.x=Math.max(f.r,Math.min(WORLD-f.r,f.x)); }
     if(f.y<f.r||f.y>WORLD-f.r){ f.vy*=-1; f.y=Math.max(f.r,Math.min(WORLD-f.r,f.y)); }
@@ -750,7 +868,7 @@ function eat(x,y,r,hue,small){
 
 async function die(){
   running=false;
-  pauseBtn.style.display='none';
+  pauseBtn.style.display='none'; musicBtn.style.display='none';
   livePill.style.opacity=0;
   joy.active=false; joy.id=null; joyEl.className='';
   burst(player.x,player.y,'#3EF0C6',50,5);
@@ -1085,10 +1203,14 @@ function renderMinimap(){
 
 // ================= FLOW =================
 const pauseBtn=document.getElementById('pausebtn');
+const musicBtn=document.getElementById('musicbtn');
 const pauseOv=document.getElementById('pause');
 function start(){
   if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
   if(AC && AC.state==='suspended') AC.resume();
+  startMusic();
+  musicBtn.style.opacity=music.on?1:.35;
+  document.getElementById('musictoggle').textContent='MUSIC: '+(music.on?'ON':'OFF');
   const nameEl=document.getElementById('name');
   const nm=nameEl.value.trim();
   if(nm) myName=nm;
@@ -1098,7 +1220,7 @@ function start(){
   document.getElementById('death').classList.add('hidden');
   pauseOv.classList.add('hidden');
   paused=false; running=true; mouse.active=false;
-  pauseBtn.style.display='block';
+  pauseBtn.style.display='block'; musicBtn.style.display='block';
   joyGhost(); renderLive();
 }
 function pauseGame(){
@@ -1106,14 +1228,14 @@ function pauseGame(){
   paused=true; pausedAt=performance.now();
   mouse.active=false; joy.active=false; joy.id=null; joyEl.className='';
   pauseOv.classList.remove('hidden');
-  pauseBtn.style.display='none';
+  pauseBtn.style.display='none'; musicBtn.style.display='none';
 }
 function resumeGame(){
   if(!paused) return;
   paused=false;
   survivedStart+=performance.now()-pausedAt;   // pause doesn't count as survival time
   pauseOv.classList.add('hidden');
-  pauseBtn.style.display='block';
+  pauseBtn.style.display='block'; musicBtn.style.display='block';
   joyGhost();
 }
 function exitToMenu(){
@@ -1122,7 +1244,7 @@ function exitToMenu(){
   pauseOv.classList.add('hidden');
   document.getElementById('death').classList.add('hidden');
   document.getElementById('start').classList.remove('hidden');
-  pauseBtn.style.display='none';
+  pauseBtn.style.display='none'; musicBtn.style.display='none';
   livePill.style.opacity=0;
   loadBoard().then(b=>renderBoard(document.getElementById('lb-start'),b));
   renderLive();
@@ -1133,6 +1255,8 @@ document.getElementById('restart').addEventListener('click', start);
 document.getElementById('tomenu').addEventListener('click', exitToMenu);
 document.getElementById('exitmenu').addEventListener('click', exitToMenu);
 document.getElementById('resume').addEventListener('click', resumeGame);
+document.getElementById('musictoggle').addEventListener('click', toggleMusic);
+musicBtn.addEventListener('click', toggleMusic);
 pauseBtn.addEventListener('click', pauseGame);
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden) pauseGame(); });
 addEventListener('keydown', e=>{ if(e.key==='Escape'||e.key==='p') paused? resumeGame():pauseGame(); });
