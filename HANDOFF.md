@@ -48,17 +48,27 @@ automatically.
   away); on desktop, WASD/arrow keys or hold the mouse. Eat anything
   smaller (grows you), flee anything bigger (instant death). Combos of 5
   trigger FRENZY (double points, +35% speed, red glow).
-- **Living food web:** solo fish hunt solo fish — they chase anything under
-  0.8× their size within 260px, eat it on contact, and grow (+16% of the
-  victim's radius, capped at 110). Smaller fish flee bigger rivals. A fish
-  that outgrows the player (>1.05×) flips to threat: red/orange, teeth, and
-  starts hunting *you*. Fish speed is capped at 4.2 so hunters can't
-  snowball into homing missiles.
-- **Music:** fully procedural (no audio files): detuned A1 sub drone, slow
-  Am9–F–Cmaj7–Gadd9 pad (~21s loop), sparse pentatonic sonar bells through
-  a feedback echo, plus a heartbeat pulse + brighter lowpass during FRENZY.
-  Ducks in menus/pause. Toggle: ♪ button in-game or MUSIC in the pause
-  menu; preference persists in localStorage (`apex-abyss-music`).
+- **Living food web:** solo fish acquire prey (anything under 0.8× their
+  size within 300px) on a staggered scan, then *lock on* — wander drift is
+  suspended and they pursue every frame until contact (+20% of the victim's
+  radius, size cap 110) or the target escapes past 340px. Kills flash a
+  particle burst and, if near the player, a wet blip. Big fish (r≥10) also
+  plow through schools, eating a member every scan pass and sending the
+  school into panic — the most visible feeding in the game. Smaller fish
+  flee bigger rivals. A fish that outgrows the player (>1.05×) flips to
+  threat: red/orange, teeth, and starts hunting *you*. Fish speed is capped
+  at 4.2 so hunters can't snowball.
+- **Music:** fully procedural, composed 8-bar theme (~23s at 82 BPM):
+  bass root+fifth doubled an octave up, sustained chord pad (Am F C G),
+  eighth-note music-box arp, a pentatonic lead melody through a feedback
+  echo, noise ticks on 2 & 4 and a deep pulse on the downbeat. FRENZY
+  lifts the master, opens the lowpass to 3.4kHz, doubles the lead an
+  octave up and adds double-time ticks. Deliberately mixed bright (lead
+  440–880Hz) because phone speakers reproduce almost nothing below
+  ~200Hz; a compressor glues the mix. Ducks in menus/pause. Toggle: ♪
+  button in-game or MUSIC in the pause menu; persists in localStorage.
+  Note: the iPhone hardware silent switch mutes ALL Web Audio (music and
+  SFX) — that's an iOS policy, not a bug.
 - **Pause menu:** the ❚❚ button (top center), Esc/P, the browser back
   button/gesture, or backgrounding the tab all pause. Menu offers Resume /
   Restart run / Main menu. Back navigation is trapped (`history.pushState`
@@ -75,7 +85,7 @@ automatically.
 | Entity | Behavior | Interaction |
 |---|---|---|
 | Solo fish | Wander; hunt + eat smaller fish and grow (staggered scan, every 4th frame); flee bigger rivals; threats (red/orange, teeth) chase the player within 300px; outgrowing the player converts a fish into a threat | Eat if smaller, die if bigger |
-| Schools | 12–22 tiny fish, boids flocking (cohesion/alignment/separation), panic-scatter near player | Always edible once you outsize members; fast combo fuel |
+| Schools | 12–22 tiny fish, boids flocking (cohesion/alignment/separation), panic-scatter near player; raided by big solo fish too | Always edible once you outsize members; fast combo fuel |
 | Jellyfish | Pulse, drift upward, glow violet | Sting: knockback + 1.5s slow + combo reset. Edible when player.r > 2.2× jelly.r |
 | Whale | Ambient background silhouette, crosses screen occasionally | None (atmosphere) |
 | Kelp, vents, wrecks, plankton | Decoration/landmarks; vents emit bubbles | None |
@@ -124,14 +134,15 @@ automatically.
 - **Audio:** Web Audio oscillator beeps for SFX, created on first user
   gesture (autoplay policy). No audio assets anywhere.
 - **Music engine:** built on the same AudioContext at first DIVE IN. Graph:
-  notes → master gain → lowpass(900Hz) → destination, with a 0.42s delay +
-  0.34 feedback loop for the bells. A 400ms `setInterval` scheduler keeps a
-  1.3s lookahead window filled (bar length 5.2s), so timing survives tab
-  throttling; `frenzy` is read at schedule time to swell volume, open the
-  filter to 2.2kHz, and add the heartbeat.
-- **Food web cost:** each active fish scans for prey/rivals every 4th frame
-  (`(i+frameCount)&3`) — the O(n²) pair scan becomes n²/4 cheap box-checks
-  spread across frames, ~1.2k/frame at the 70-fish cap.
+  notes → master gain → lowpass(1.5kHz) → compressor → destination, with a
+  dotted-eighth delay (+0.3 feedback) as the lead's echo and a shared white
+  noise buffer for percussion. A 300ms `setInterval` scheduler keeps a 1.2s
+  lookahead window filled (bar = 4 beats at 82 BPM ≈ 2.93s; 8-bar loop),
+  so timing survives tab throttling; `frenzy` is read at schedule time.
+- **Food web cost:** target *acquisition* runs every 4th frame per fish
+  (`(i+frameCount)&3` — n²/4 cheap box-checks, ~1.2k/frame at cap); the
+  per-frame pursuit of a locked target is O(1) per hunter. Eaten fish are
+  flagged `dead` so hunters holding a reference drop it safely.
 - **Haptics:** `navigator.vibrate` on eat/frenzy/tier-up/sting/death
   (no-ops on iOS Safari, which doesn't support it — harmless).
 - **Mobile:** `100dvh`, `viewport-fit=cover` + safe-area insets (all four
@@ -242,11 +253,12 @@ the WebSocket path has no such lag.
 | Fish population caps | `fish.length<90` (density), `<60` (world), `>70` recycle | 60–90 |
 | Simulation bubble radii | `R_NEAR2/R_FREEZE2/R_CULL2` in `resize()` | 0.95× / 1.05× / 1.7× diag |
 | Quality governor | `frameAvg>26` down, `<15` up, floor `.5` | steps of .17 |
-| Food web: sense / prey / flee ratios | `260`px box, `o.r<f.r*.8`, `o.r>f.r*1.25` | — |
-| Food web: growth / size cap / speed cap | `+prey.r*.16`, `Math.min(110,...)`, `4.2` | — |
+| Food web: sense / lose / prey / flee ratios | `300`px scan box, `340`px lose, `o.r<f.r*.8`, `>1.25` | — |
+| Food web: growth / size cap / speed cap | `+prey.r*.2` (+.3/school member), `110`, `4.2` | — |
+| School raiding | `f.r>=10`, 160px box, one member per scan | — |
 | Threat conversion | `f.r>player.r*1.05` flips `threat` | 1.05× |
-| Music: bar / chords / bell density | `BAR=5.2`, `CHORDS`, `.65` per bar (3 in frenzy) | ~21s loop |
-| Music: volumes | drone `.15`, pad `.05`, bells `.075`, master `.3`/`.4` frenzy | — |
+| Music: tempo / loop | `BPM=82`, `PROG`+`MELODY` arrays | 8 bars ≈ 23s |
+| Music: volumes | bass `.2`, pad `.045`, lead `.13`, master `.38`/`.5` frenzy | — |
 
 ## Known limitations / ideas not yet built
 

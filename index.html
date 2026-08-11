@@ -286,63 +286,123 @@ else if(storageOK) document.getElementById('lb-note').textContent='Scores are sh
 loadBoard().then(b=>renderBoard(document.getElementById('lb-start'),b));
 
 // ================= MUSIC =================
-// Fully procedural deep-sea score — no audio files, stays single-file.
-// Layers: detuned sub drone (A1), a slow 4-chord ambient pad (~21s loop),
-// sparse pentatonic "sonar bells" through a feedback echo, and during
-// FRENZY a low heartbeat pulse + brighter lowpass. Lookahead scheduler
-// keeps timing solid even when the tab hiccups.
-let music={ on:(lsOK? localStorage.getItem('apex-abyss-music')!=='0' : true), started:false, gain:null, filt:null, echo:null, nextBar:0, bar:0 };
-const CHORDS=[[0,3,7,14],[-4,0,3,7],[3,7,10,14],[-2,2,5,12]];   // Am9 F Cmaj7 Gadd9 (semitones from A2)
-const PENTA=[12,15,17,19,22,24,27];
+// Fully procedural score — no audio files, stays single-file. A composed
+// 8-bar theme (~23s) at 82 BPM: bass root+fifth, sustained chord pad, an
+// eighth-note music-box arp, a pentatonic lead through a feedback echo,
+// noise ticks on 2 & 4 and a deep pulse on the downbeat. FRENZY opens the
+// lowpass, lifts the master, doubles the lead an octave up and adds
+// double-time ticks. Mixed bright on purpose (lead at 440-880Hz, bass
+// doubled +1 octave) so it carries on phone speakers, which reproduce
+// almost nothing below ~200Hz; a compressor glues the mix. The lookahead
+// scheduler keeps timing solid even when the tab throttles.
+let music={ on:(lsOK? localStorage.getItem('apex-abyss-music')!=='0' : true), started:false, gain:null, filt:null, echo:null, noiseBuf:null, nextBar:0, bar:0 };
+const BPM=82, BEAT=60/BPM, BARLEN=BEAT*4;
+const PROG=[{r:0,ch:[0,3,7]},{r:-4,ch:[-4,0,3]},{r:3,ch:[3,7,10]},{r:-2,ch:[-2,2,5]},   // Am F C G
+            {r:0,ch:[0,3,7]},{r:-4,ch:[-4,0,3]},{r:3,ch:[3,7,10]},{r:-2,ch:[-2,2,5]}];
+const MELODY=[            // per bar: [beat offset, semitones above A2, beats held]
+  [[0,31,2],[2.5,27,1]],
+  [[0,29,1.5],[2,27,.5],[2.5,24,1.5]],
+  [[0,31,2],[2.5,34,1]],
+  [[0,29,3]],
+  [[0,36,1.5],[2,34,.5],[2.5,31,1.5]],
+  [[0,29,1.5],[2,31,.5],[2.5,27,1.5]],
+  [[0,27,1],[1,29,1],[2,31,2]],
+  [[0,29,1.5],[2,26,2]],
+];
 function nfreq(semi){ return 110*Math.pow(2,semi/12); }
 function mnote(freq,t,dur,type,vol,toEcho){
   try{
     const o=AC.createOscillator(), g=AC.createGain();
     o.type=type; o.frequency.value=freq;
     g.gain.setValueAtTime(.0001,t);
-    g.gain.exponentialRampToValueAtTime(vol,t+dur*.3);
+    g.gain.exponentialRampToValueAtTime(vol,t+Math.min(.08,dur*.25));
     g.gain.exponentialRampToValueAtTime(.0001,t+dur);
     o.connect(g); g.connect(music.gain);
     if(toEcho) g.connect(music.echo);
     o.start(t); o.stop(t+dur+.1);
   }catch(e){}
 }
+function tick(t,vol,freq){   // filtered-noise percussion
+  try{
+    const src=AC.createBufferSource(); src.buffer=music.noiseBuf;
+    const bp=AC.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=freq; bp.Q.value=1.2;
+    const g=AC.createGain();
+    g.gain.setValueAtTime(vol,t);
+    g.gain.exponentialRampToValueAtTime(.0001,t+.09);
+    src.connect(bp); bp.connect(g); g.connect(music.gain);
+    src.start(t); src.stop(t+.1);
+  }catch(e){}
+}
+function thump(t){           // deep downbeat pulse
+  try{
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type='sine';
+    o.frequency.setValueAtTime(150,t);
+    o.frequency.exponentialRampToValueAtTime(46,t+.22);
+    g.gain.setValueAtTime(.22,t);
+    g.gain.exponentialRampToValueAtTime(.0001,t+.3);
+    o.connect(g); g.connect(music.gain);
+    o.start(t); o.stop(t+.32);
+  }catch(e){}
+}
 function startMusic(){
   if(music.started || !AC) return;
   music.started=true;
   try{
+    const comp=AC.createDynamicsCompressor();
+    comp.threshold.value=-18; comp.knee.value=20; comp.ratio.value=4;
+    comp.attack.value=.01; comp.release.value=.3;
+    comp.connect(AC.destination);
+    music.filt=AC.createBiquadFilter(); music.filt.type='lowpass'; music.filt.frequency.value=1500; music.filt.Q.value=.5;
+    music.filt.connect(comp);
     music.gain=AC.createGain(); music.gain.gain.value=.0001;
-    music.filt=AC.createBiquadFilter(); music.filt.type='lowpass'; music.filt.frequency.value=900; music.filt.Q.value=.6;
-    music.gain.connect(music.filt); music.filt.connect(AC.destination);
-    music.echo=AC.createDelay(1); music.echo.delayTime.value=.42;
-    const eg=AC.createGain(); eg.gain.value=.34;
+    music.gain.connect(music.filt);
+    music.echo=AC.createDelay(1); music.echo.delayTime.value=BEAT*.75;
+    const eg=AC.createGain(); eg.gain.value=.3;
     music.echo.connect(eg); eg.connect(music.echo); eg.connect(music.gain);
-    [55,55.6].forEach(fq=>{   // eternal drone, two oscillators a hair apart
+    music.noiseBuf=AC.createBuffer(1,Math.ceil(AC.sampleRate*.12),AC.sampleRate);
+    const nd=music.noiseBuf.getChannelData(0);
+    for(let i=0;i<nd.length;i++) nd[i]=Math.random()*2-1;
+    [[55,.1],[110.4,.05]].forEach(([fq,v])=>{   // eternal drone bed
       const o=AC.createOscillator(), g=AC.createGain();
-      o.type='sine'; o.frequency.value=fq; g.gain.value=.15;
+      o.type='sine'; o.frequency.value=fq; g.gain.value=v;
       o.connect(g); g.connect(music.gain); o.start();
     });
-    music.nextBar=AC.currentTime+.1;
-    setInterval(scheduleMusic,400);
+    music.nextBar=AC.currentTime+.15;
+    setInterval(scheduleMusic,300);
     scheduleMusic();
   }catch(e){ music.started=false; }
 }
 function scheduleMusic(){
   if(!AC || !music.gain) return;
-  const BAR=5.2;
-  while(music.nextBar < AC.currentTime+1.3){
-    const t=music.nextBar, ch=CHORDS[music.bar%CHORDS.length];
-    ch.forEach((s2,ix)=>mnote(nfreq(s2), t+ix*.06, BAR*1.05, 'triangle', .05));
-    const bells=(frenzy>0?3:(Math.random()<.65?1:0))+(Math.random()<.25?1:0);
-    for(let b=0;b<bells;b++)
-      mnote(nfreq(PENTA[Math.floor(Math.random()*PENTA.length)]), t+rnd(0,BAR*.8), 2.6, 'sine', .075, true);
-    if(frenzy>0) for(let p=0;p<8;p++) mnote(55, t+p*.65, .3, 'sine', .14);
-    music.bar++; music.nextBar+=BAR;
+  while(music.nextBar < AC.currentTime+1.2){
+    const t=music.nextBar, bar=music.bar%PROG.length, hot=frenzy>0;
+    const pr=PROG[bar], r=pr.r, ch=pr.ch;
+    // bass: root then fifth, doubled +1 octave for small speakers
+    mnote(nfreq(r),t,BEAT*1.8,'triangle',.2);
+    mnote(nfreq(r+12),t,BEAT*1.8,'sine',.1);
+    mnote(nfreq(r+7),t+BEAT*2.5,BEAT*1.3,'triangle',.16);
+    // pad: chord an octave up, slow bloom across the bar
+    ch.forEach((s2,ix)=>mnote(nfreq(s2+12),t+ix*.05,BARLEN*1.08,'triangle',.045));
+    // music-box arp on chord tones, two octaves up
+    for(let i=0;i<8;i++)
+      if(hot || Math.random()<.8)
+        mnote(nfreq(ch[i%3]+24+(i===7?12:0)),t+i*BEAT*.5,BEAT*.48,'square',hot?.04:.027);
+    // lead theme through the echo (doubled +1 octave in frenzy)
+    MELODY[bar].forEach(m2=>{
+      mnote(nfreq(m2[1]),t+m2[0]*BEAT,m2[2]*BEAT*1.05,'sine',.13,true);
+      if(hot) mnote(nfreq(m2[1]+12),t+m2[0]*BEAT,m2[2]*BEAT,'sine',.06,true);
+    });
+    // percussion
+    thump(t); if(hot) thump(t+BEAT*2);
+    tick(t+BEAT,.05,3200); tick(t+BEAT*3,.05,3200);
+    if(hot){ tick(t+BEAT*1.5,.035,4200); tick(t+BEAT*3.5,.035,4200); }
+    music.bar++; music.nextBar+=BARLEN;
   }
-  // duck in menus/pause, brighten + swell during frenzy, silence when muted
-  const target=!music.on? .0001 : (running&&!paused? (frenzy>0?.4:.3) : .15);
-  music.gain.gain.setTargetAtTime(target, AC.currentTime, .6);
-  music.filt.frequency.setTargetAtTime(frenzy>0?2200:900, AC.currentTime, .5);
+  // duck in menus/pause, swell + brighten in frenzy, silence when muted
+  const target=!music.on? .0001 : (running&&!paused? (frenzy>0?.5:.38) : .16);
+  music.gain.gain.setTargetAtTime(target, AC.currentTime, .5);
+  music.filt.frequency.setTargetAtTime(frenzy>0?3400:1500, AC.currentTime, .4);
 }
 function toggleMusic(){
   music.on=!music.on;
@@ -672,7 +732,7 @@ function loop(ts){
     if(d2>R_FREEZE2){
       // frozen: too far to be seen or to matter — zero simulation cost.
       // Way outside AND over the population cap? recycle it.
-      if(fish.length>70 && d2>R_CULL2) fish.splice(i,1);
+      if(fish.length>70 && d2>R_CULL2){ f.dead=true; fish.splice(i,1); }
       continue;
     }
     f.wob+=.08*f.wobS*dt;
@@ -686,30 +746,61 @@ function loop(ts){
       f.threat=true;
       f.hue=Math.random()<.5?'#FF4D6A':'#FF7A4D';
     }
-    // staggered scan: each fish hunts every 4th frame, so the whole food
-    // web costs ~n²/4 cheap box-checks spread across frames
+    // acquire prey on a staggered scan (every 4th frame per fish)…
     if(((i+frameCount)&3)===0){
-      let bestD=1e9, prey=null, preyIdx=-1, hx=0, hy=0;
+      let bestD=1e9;
+      if(f.prey && f.prey.dead) f.prey=null;
       for(let k=fish.length-1;k>=0;k--){
         if(k===i) continue;
         const o=fish[k];
         const odx=o.x-f.x, ody=o.y-f.y;
-        if(odx>260||odx<-260||ody>260||ody<-260) continue;
+        if(odx>300||odx<-300||ody>300||ody<-300) continue;
         const od=Math.hypot(odx,ody)||1;
-        if(o.r<f.r*.8){ if(od<bestD){ bestD=od; prey=o; preyIdx=k; hx=odx/od; hy=ody/od; } }
-        else if(o.r>f.r*1.25 && od<190){ f.vx-=odx/od*.1; f.vy-=ody/od*.1; }  // flee bigger rivals
+        if(o.r<f.r*.8){ if(od<bestD){ bestD=od; f.prey=o; } }
+        else if(o.r>f.r*1.25 && od<190){ f.vx-=odx/od*.12; f.vy-=ody/od*.12; }  // flee bigger rivals
       }
-      if(prey){
-        if(bestD < f.r*.9+prey.r*.4){
-          f.r=Math.min(110, f.r+prey.r*.16);
-          if(Math.abs(prey.x-player.x)<W && Math.abs(prey.y-player.y)<H) burst(prey.x,prey.y,prey.hue,6,1.5);
-          fish.splice(preyIdx,1);
-          if(preyIdx<i) i--;   // our own index shifted down one
-        } else { f.vx+=hx*.1; f.vy+=hy*.1; }
+      // big fish plow straight through schools — the most visible feeding
+      if(f.r>=10) for(let sk=schools.length-1;sk>=0;sk--){
+        const S=schools[sk], SM=S.members;
+        if(!SM.length) continue;
+        const sdx=SM[0].x-f.x, sdy=SM[0].y-f.y;
+        if(sdx>160||sdx<-160||sdy>160||sdy<-160) continue;
+        for(let mi2=SM.length-1;mi2>=0;mi2--){
+          const m2=SM[mi2];
+          const mdx=m2.x-f.x, mdy=m2.y-f.y;
+          if(mdx*mdx+mdy*mdy < (f.r+7)*(f.r+7)){
+            SM.splice(mi2,1);
+            f.r=Math.min(110, f.r+.3);
+            S.panic=1;
+            burst(m2.x,m2.y,S.hue,5,1.5);
+            break;
+          }
+        }
+        break;
+      }
+    }
+    // …then pursue the locked target every frame (no wander drift while
+    // hunting) and gulp on contact
+    if(f.prey){
+      const o=f.prey;
+      if(o.dead){ f.prey=null; }
+      else{
+        const pdx=o.x-f.x, pdy=o.y-f.y, pd=Math.hypot(pdx,pdy)||1;
+        if(pd>340) f.prey=null;
+        else if(pd < f.r*.9+o.r*.4){
+          o.dead=true; f.prey=null;
+          f.r=Math.min(110, f.r+o.r*.2);
+          burst(o.x,o.y,o.hue,10,2);
+          if(Math.abs(o.x-player.x)<W*.6 && Math.abs(o.y-player.y)<H*.6) beep(150+Math.random()*60,.07,'square',.05,-80);
+          const ki=fish.indexOf(o);
+          if(ki>=0){ fish.splice(ki,1); if(ki<i) i--; }   // our index shifts if prey was below us
+        } else {
+          f.vx+=pdx/pd*.05*dt; f.vy+=pdy/pd*.05*dt;
+        }
       }
     }
 
-    const a=Math.atan2(f.vy,f.vx)+f.turn*dt, s=Math.hypot(f.vx,f.vy);
+    const a=Math.atan2(f.vy,f.vx)+(f.prey?0:f.turn*dt), s=Math.hypot(f.vx,f.vy);
     f.vx=Math.cos(a)*s; f.vy=Math.sin(a)*s;
     // hunting adds thrust every scan — cap speed so nothing snowballs
     if(s>4.2){ f.vx*=4.2/s; f.vy*=4.2/s; }
@@ -718,7 +809,7 @@ function loop(ts){
     if(f.y<f.r||f.y>WORLD-f.r){ f.vy*=-1; f.y=Math.max(f.r,Math.min(WORLD-f.r,f.y)); }
 
     if(d < player.r+f.r*.82){
-      if(f.r < player.r*.96){ fish.splice(i,1); eat(f.x,f.y,f.r,f.hue); }
+      if(f.r < player.r*.96){ f.dead=true; fish.splice(i,1); eat(f.x,f.y,f.r,f.hue); }
       else if(f.r > player.r*1.08){ die(); return; }
     }
   }
