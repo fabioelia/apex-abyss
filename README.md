@@ -7,6 +7,7 @@ A mobile-first eat-and-grow arcade game set in a bioluminescent deep sea.
 - Drag anywhere — a floating joystick appears under your thumb (WASD/arrows or mouse on desktop)
 - Eat anything smaller, flee anything bigger
 - A living food web: fish eat fish, grow, and can turn on you when they outgrow you
+- Smaller is faster: anything big enough to eat you is always slightly slower than you
 - Procedural deep-sea soundtrack — drone, ambient pad, sonar bells, frenzy heartbeat (♪ to mute)
 - Tear through schools of fish for fast combos; 5-kill chains trigger FRENZY
 - Avoid jellyfish stings (until you're big enough to eat them)

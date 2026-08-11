@@ -56,8 +56,15 @@ automatically.
   plow through schools, eating a member every scan pass and sending the
   school into panic — the most visible feeding in the game. Smaller fish
   flee bigger rivals. A fish that outgrows the player (>1.05×) flips to
-  threat: red/orange, teeth, and starts hunting *you*. Fish speed is capped
-  at 4.2 so hunters can't snowball.
+  threat: red/orange, teeth, and starts hunting *you*. Every meal triggers
+  a brief "chomp swell" (+35% drawn size, decaying) so growth is visible.
+- **Speed law:** smaller fish are ALWAYS a bit faster than bigger fish
+  (`fishMaxSpd(r) = max(1.4, 5.2 − 0.055·r)`). Hunters lunge (×1.35 cap
+  while locked on) so they catch prey in bursts and ambushes, not
+  inevitabilities. Two player-fairness clamps: fish bigger than the player
+  are capped at 0.92× the player's base speed (you can always escape), and
+  smaller fish within 260px of the player are capped at 0.96× (you can
+  always, barely, catch dinner). FRENZY (+35%) beats everything.
 - **Music:** fully procedural, composed 8-bar theme (~23s at 82 BPM):
   bass root+fifth doubled an octave up, sustained chord pad (Am F C G),
   eighth-note music-box arp, a pentatonic lead melody through a feedback
@@ -100,8 +107,9 @@ automatically.
   720 frames) prevent oscillation. Weak phones silently render fewer pixels
   instead of stuttering.
 - **Simulation bubble:** every fish/school/jelly gets one squared-distance
-  check per frame. Inside ~0.95× screen diagonal it counts toward on-screen
-  density; outside ~1.05× it is *frozen* — zero simulation, zero draw cost
+  check per frame. Inside ~0.8× screen diagonal it counts toward on-screen
+  density (kept tight so the food-web drama happens where the player can
+  see it); outside ~1.05× it is *frozen* — zero simulation, zero draw cost
   (minimap still shows it). Fish beyond 1.7× while over the 70-entity
   budget are recycled; schools beyond 2× respawn near the player. **The
   density spawner is hard-capped at 90 fish — it used to run unbounded
@@ -254,7 +262,8 @@ the WebSocket path has no such lag.
 | Simulation bubble radii | `R_NEAR2/R_FREEZE2/R_CULL2` in `resize()` | 0.95× / 1.05× / 1.7× diag |
 | Quality governor | `frameAvg>26` down, `<15` up, floor `.5` | steps of .17 |
 | Food web: sense / lose / prey / flee ratios | `300`px scan box, `340`px lose, `o.r<f.r*.8`, `>1.25` | — |
-| Food web: growth / size cap / speed cap | `+prey.r*.2` (+.3/school member), `110`, `4.2` | — |
+| Food web: growth / size cap | `+prey.r*.35` (+.4/school member), `110` | — |
+| Speed law / lunge / fairness clamps | `fishMaxSpd`, `×1.35` hunting, `.92`/`.96` vs player | — |
 | School raiding | `f.r>=10`, 160px box, one member per scan | — |
 | Threat conversion | `f.r>player.r*1.05` flips `threat` | 1.05× |
 | Music: tempo / loop | `BPM=82`, `PROG`+`MELODY` arrays | 8 bars ≈ 23s |

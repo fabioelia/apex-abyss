@@ -178,7 +178,8 @@ function resize(){
   canvas.style.width=W+'px'; canvas.style.height=H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
   const DIAG=Math.hypot(W,H);
-  R_NEAR2  =(DIAG* .95)**2;   // fish inside this count toward on-screen density
+  R_NEAR2  =(DIAG* .8)**2;    // fish inside this count toward on-screen density
+                              // (tight radius = the action stays visible)
   R_FREEZE2=(DIAG*1.05)**2;   // beyond this: not simulated at all (frozen)
   R_CULL2  =(DIAG*1.7 )**2;   // beyond this: recycled once over the population cap
   R_SFREEZE2=(DIAG*1.15)**2; R_SCULL2=(DIAG*2)**2;  // same idea for schools
@@ -532,8 +533,8 @@ function spawnFish(nearPlayer){
   const r= threat? pr*rnd(1.25,2.2) : Math.max(5,pr*rnd(0.28,0.9));
   let x,y;
   if(nearPlayer){
-    // just off-screen but safely inside the "near" census radius (0.95×diag)
-    const a=Math.random()*Math.PI*2, dist=Math.hypot(W,H)/2+rnd(80,300);
+    // just off-screen but safely inside the "near" census radius (0.8×diag)
+    const a=Math.random()*Math.PI*2, dist=Math.hypot(W,H)/2+rnd(80,220);
     x=player.x+Math.cos(a)*dist; y=player.y+Math.sin(a)*dist;
   } else { x=rnd(60,WORLD-60); y=rnd(60,WORLD-60); }
   // harmless prey may spawn in view (keeps the world lively); threats never
@@ -662,7 +663,11 @@ addEventListener('keyup', e=>{ const k=KEYMAP[e.key.toLowerCase()]; if(k) keys[k
 addEventListener('blur', ()=>{ for(const k in keys) keys[k]=false; });
 
 // ================= LOOP =================
-let last=0, frameCount=0, frameAvg=16.7, qCool=0, nearFish=12;
+let last=0, frameCount=0, frameAvg=16.7, qCool=0, nearFish=12, playerMaxS=3.6;
+// The ocean's one speed law: smaller fish are always a bit faster than
+// bigger fish. Hunters compensate with short lunges (×1.35 while locked
+// on), so chases read as burst-and-escape instead of inevitable runs.
+function fishMaxSpd(r){ return Math.max(1.4, 5.2-.055*r); }
 function loop(ts){
   requestAnimationFrame(loop);
   const raw=ts-last;
@@ -679,7 +684,10 @@ function loop(ts){
 
   // ---- player ----
   const slow = stun>0? .45 : 1;
-  const maxS=(3.6+Math.min(2.2,score*.01))*(frenzy>0?1.35:1)*slow*Math.pow(18/(player.r+6),.16);
+  // playerMaxS is the base speed (no frenzy/stun) — big fish are capped
+  // just under it so anything that can eat you is always outswimmable
+  playerMaxS=(3.6+Math.min(2.2,score*.01))*Math.pow(18/(player.r+6),.16);
+  const maxS=playerMaxS*(frenzy>0?1.35:1)*slow;
   let dirX=0, dirY=0, drive=0;
   const kx=(keys.r?1:0)-(keys.l?1:0), ky=(keys.d?1:0)-(keys.u?1:0);
   if(joy.active){
@@ -770,7 +778,8 @@ function loop(ts){
           const mdx=m2.x-f.x, mdy=m2.y-f.y;
           if(mdx*mdx+mdy*mdy < (f.r+7)*(f.r+7)){
             SM.splice(mi2,1);
-            f.r=Math.min(110, f.r+.3);
+            f.r=Math.min(110, f.r+.4);
+            f.gpop=Math.max(f.gpop||0,.6);
             S.panic=1;
             burst(m2.x,m2.y,S.hue,5,1.5);
             break;
@@ -789,8 +798,9 @@ function loop(ts){
         if(pd>340) f.prey=null;
         else if(pd < f.r*.9+o.r*.4){
           o.dead=true; f.prey=null;
-          f.r=Math.min(110, f.r+o.r*.2);
-          burst(o.x,o.y,o.hue,10,2);
+          f.r=Math.min(110, f.r+o.r*.35);   // meals visibly matter
+          f.gpop=1;                          // chomp-swell animation
+          burst(o.x,o.y,o.hue,12,2.2);
           if(Math.abs(o.x-player.x)<W*.6 && Math.abs(o.y-player.y)<H*.6) beep(150+Math.random()*60,.07,'square',.05,-80);
           const ki=fish.indexOf(o);
           if(ki>=0){ fish.splice(ki,1); if(ki<i) i--; }   // our index shifts if prey was below us
@@ -802,8 +812,15 @@ function loop(ts){
 
     const a=Math.atan2(f.vy,f.vx)+(f.prey?0:f.turn*dt), s=Math.hypot(f.vx,f.vy);
     f.vx=Math.cos(a)*s; f.vy=Math.sin(a)*s;
-    // hunting adds thrust every scan — cap speed so nothing snowballs
-    if(s>4.2){ f.vx*=4.2/s; f.vy*=4.2/s; }
+    // speed law: smaller = faster, lunge while hunting, and fish bigger
+    // than the player never outrun the player's base speed. Small fish
+    // near the player stay just catchable.
+    let cap=fishMaxSpd(f.r);
+    if(f.prey) cap*=1.35;
+    if(f.r>player.r) cap=Math.min(cap, playerMaxS*.92);
+    else if(d<260) cap=Math.min(cap, playerMaxS*.96);
+    if(s>cap){ f.vx*=cap/s; f.vy*=cap/s; }
+    if(f.gpop>0) f.gpop=Math.max(0, f.gpop-.04*dt);   // chomp-swell decay
     f.x+=f.vx*dt; f.y+=f.vy*dt;
     if(f.x<f.r||f.x>WORLD-f.r){ f.vx*=-1; f.x=Math.max(f.r,Math.min(WORLD-f.r,f.x)); }
     if(f.y<f.r||f.y>WORLD-f.r){ f.vy*=-1; f.y=Math.max(f.r,Math.min(WORLD-f.r,f.y)); }
@@ -1212,8 +1229,8 @@ function render(ts){
     });
   });
 
-  // solo fish
-  fish.forEach(f=>{ if(vis(f)) drawFish(f.x,f.y,f.r,Math.atan2(f.vy,f.vx),f.hue,f.wob,f.threat); });
+  // solo fish (gpop = brief swell right after a meal)
+  fish.forEach(f=>{ if(vis(f)) drawFish(f.x,f.y,f.r*(1+(f.gpop||0)*.35),Math.atan2(f.vy,f.vx),f.hue,f.wob,f.threat); });
 
   // jellyfish (in front of fish, glowing)
   jellies.forEach(j=>{ if(vis(j,80)) drawJelly(j,ts); });
