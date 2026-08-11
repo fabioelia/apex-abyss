@@ -41,9 +41,15 @@ automatically.
 
 ## Game design summary
 
-- **Core loop:** touch/hold to swim toward your finger. Eat anything smaller
-  (grows you), flee anything bigger (instant death). Combos of 5 trigger
-  FRENZY (double points, +35% speed, red glow).
+- **Core loop:** on touch devices a floating joystick appears wherever your
+  thumb lands (drag past its edge and the base follows, so it never runs
+  away); on desktop, hold the mouse and you swim toward it. Eat anything
+  smaller (grows you), flee anything bigger (instant death). Combos of 5
+  trigger FRENZY (double points, +35% speed, red glow).
+- **Pause menu:** the ❚❚ button (top center), Esc/P, the browser back
+  button/gesture, or backgrounding the tab all pause. Menu offers Resume /
+  Restart run / Main menu. Back navigation is trapped (`history.pushState`
+  re-armed on every `popstate`) so it can never kill a run.
 - **Progression:** 7 tiers by score — Hatchling(0) → Lurker(8) → Stalker(20)
   → Predator(40) → Alpha(70) → Leviathan(110) → APEX(160). Tier-ups announce
   with screen shake + haptics.
@@ -76,31 +82,117 @@ automatically.
   (autoplay policy). No audio assets.
 - **Haptics:** `navigator.vibrate` on eat/frenzy/tier-up/sting/death
   (no-ops on iOS Safari, which doesn't support it — harmless).
-- **Mobile:** `100dvh`, `viewport-fit=cover` + safe-area insets,
-  `touch-action:none`, `position:fixed` body to kill scroll/bounce/zoom.
+- **Mobile:** `100dvh`, `viewport-fit=cover` + safe-area insets (all four
+  edges), `touch-action:none`, `overscroll-behavior:none`, `position:fixed`
+  body to kill scroll/bounce/zoom.
+- **Joystick:** DOM element (`#joy`), tracked by touch identifier so a
+  second finger can't hijack steering; deadzone 0.14, radius 52px, base
+  re-anchors on long swipes. A faint "ghost" ring rests bottom-left as a
+  hint while playing.
+- **Landscape:** canvas re-measures on `resize` and (with a 250ms settle
+  delay for iOS) `orientationchange`; start/death overlays switch to a
+  two-column layout below 560px height.
+- **Overlay hit-testing (important):** hidden overlays use
+  `visibility:hidden` + a `pointer-events:none !important` child rule. The
+  original build only set `pointer-events:none` on the container, which its
+  `pointer-events:auto` children (buttons, name input) overrode — so the
+  invisible DIVE IN / HUNT AGAIN buttons swallowed mid-game taps and
+  silently restarted the run (the "teleport to center" bug). Don't regress
+  this.
 
-## Leaderboard — read this
+## Leaderboard & live players — read this
 
-The code detects its environment:
+Both features share one backend-detection chain, checked in this order:
 
-1. **Inside a Claude artifact:** uses `window.storage` (shared:true) — one
-   global top-10 board shared by every player of the artifact.
-2. **On GitHub Pages / any normal website:** `window.storage` doesn't exist,
-   so it falls back to **localStorage** — a persistent top-10 **per device**.
-   The UI note updates automatically ("Top 10 hunters on this device").
-3. **No storage at all:** in-memory, session only.
+1. **`BACKEND_URL` set** (the const at the top of the `<script>` in
+   `index.html`): global leaderboard AND the live "who's online" list work
+   across every device, via your Cloudflare Worker (setup below). This is
+   what you want for the GitHub Pages link.
+2. **Inside a Claude artifact:** `window.storage` (shared:true) — board and
+   live list shared by every player of the artifact automatically.
+3. **Plain static hosting, no backend:** localStorage — a persistent top-10
+   **per device**; the live list can't exist (a static site has no way to
+   see other devices), so the start screen shows a small pointer to this
+   doc instead.
 
-So the public link has per-device boards, not a global one. A static site has
-no server to hold shared state. If you want a real global board:
+**Presence mechanics:** every open tab heartbeats `{id, name, score}` every
+5s; entries older than 30s are pruned, so the list self-heals when someone
+closes the tab. Score −1 means "in the lobby". In-game, a pill at the
+bottom center shows how many other hunters are online; the start screen
+lists them by name with live scores. This is a *presence list* — you see
+who's playing and their score, not their fish swimming in your world (that
+would be real-time multiplayer; see limitations).
 
-- **Lightest:** Cloudflare Worker + KV (free tier). ~30 lines: `GET /board`
-  returns JSON top-10, `POST /score` validates + inserts. Point `loadBoard` /
-  `saveScore` at it. Add a shared-secret or basic rate limit to deter spam.
-- Alternatives: Supabase (Postgres + row-level security), Firebase RTDB,
-  or Val.town for a zero-infra endpoint.
+Storage keys: `apex-abyss-leaderboard-v1`, `apex-abyss-live-v1`. Board entry
+shape: `{name (≤14 chars, sanitized on render), score, tier, t (timestamp)}`.
 
-Storage key: `apex-abyss-leaderboard-v1`. Entry shape:
-`{name (≤14 chars, sanitized on render), score, tier, t (timestamp)}`.
+## Global board + live list in ~5 minutes (Cloudflare Worker + KV)
+
+1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages →
+   Create → Worker**, any name (e.g. `apex-abyss`), deploy the hello-world,
+   then **Edit code** and replace it with:
+
+   ```js
+   export default {
+     async fetch(req, env) {
+       const CORS = {
+         'Access-Control-Allow-Origin': '*',
+         'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+         'Access-Control-Allow-Headers': 'Content-Type',
+       };
+       if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
+       const json = (o, s = 200) => new Response(JSON.stringify(o),
+         { status: s, headers: { 'Content-Type': 'application/json', ...CORS } });
+       const path = new URL(req.url).pathname;
+
+       if (path === '/board' && req.method === 'GET') {
+         return json(JSON.parse(await env.KV.get('board') || '[]'));
+       }
+       if (path === '/score' && req.method === 'POST') {
+         const b = await req.json().catch(() => null);
+         if (!b || typeof b.score !== 'number' || b.score < 0 || b.score > 100000)
+           return json({ error: 'bad' }, 400);
+         const entry = { name: String(b.name || 'Hunter').slice(0, 14),
+           score: Math.floor(b.score), tier: String(b.tier || '').slice(0, 12), t: Date.now() };
+         const board = JSON.parse(await env.KV.get('board') || '[]');
+         board.push(entry);
+         board.sort((a, z) => z.score - a.score);
+         const top = board.slice(0, 10);
+         await env.KV.put('board', JSON.stringify(top));
+         return json(top);
+       }
+       if (path === '/live' && req.method === 'POST') {
+         const b = await req.json().catch(() => null);
+         if (!b || !b.id) return json({ error: 'bad' }, 400);
+         const now = Date.now();
+         const live = JSON.parse(await env.KV.get('live') || '{}');
+         for (const k in live) if (now - live[k].t > 30000) delete live[k];
+         const id = String(b.id).slice(0, 40);
+         live[id] = { id, n: String(b.n || 'Hunter').slice(0, 14),
+           s: typeof b.s === 'number' ? Math.floor(b.s) : -1,
+           tier: String(b.tier || '').slice(0, 12), t: now };
+         await env.KV.put('live', JSON.stringify(live));
+         return json({ players: Object.values(live) });
+       }
+       return json({ error: 'not found' }, 404);
+     }
+   };
+   ```
+
+2. Worker → **Settings → Bindings → Add → KV namespace**: variable name
+   `KV`, create a namespace (e.g. `apex-abyss-kv`), save, then **Deploy**.
+
+3. Copy the worker URL (`https://apex-abyss.<your-subdomain>.workers.dev`)
+   into `BACKEND_URL` at the top of the script in `index.html`, commit,
+   push. Done — global board + live player list for everyone on the Pages
+   link.
+
+Caveats: KV is eventually consistent — players hitting different Cloudflare
+regions can take up to ~60s to appear in each other's live list (same
+region is near-instant). Heartbeats also race occasionally (last write
+wins), which self-heals within one 5s beat. Totally fine for a friends
+board; a spam-proof or real-time version wants Durable Objects and a
+shared-secret instead.
 
 ## Tuning knobs (all in index.html)
 
@@ -113,10 +205,15 @@ Storage key: `apex-abyss-leaderboard-v1`. Entry shape:
 | Sting penalty | `stun=90`, speed ×0.45 | ~1.5s slow |
 | Max player size | `Math.min(78, ...)` | 78px radius |
 | Player base speed | `3.6+...` in loop | scales with score, shrinks with size |
+| Joystick radius / deadzone | `JOY_R`, `JOY_DEAD` | 52px / 0.14 |
+| Presence heartbeat / timeout | `setInterval(heartbeat,5000)`, prune `>30000` | 5s / 30s |
 
 ## Known limitations / ideas not yet built
 
-- No real-time multiplayer (needs websocket server; client would port over).
+- Presence shows who's online with live scores — not other players' fish in
+  your world. True shared-world multiplayer needs a stateful realtime server
+  (Cloudflare Durable Objects + WebSockets would host it; the input/render
+  code ports over).
 - Kelp is decorative — could become stealth cover (predators lose aggro inside).
 - No golden rare prey, no persistent progression/unlocks.
 - One sound "voice" — a low ambient drone loop would add a lot.

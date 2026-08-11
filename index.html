@@ -7,10 +7,10 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;600&display=swap');
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }
-  html,body { height:100%; overflow:hidden; background:#020810; touch-action:none; position:fixed; width:100%; }
+  html,body { height:100%; overflow:hidden; background:#020810; touch-action:none; position:fixed; width:100%; overscroll-behavior:none; -webkit-touch-callout:none; }
   #game { display:block; width:100vw; height:100vh; height:100dvh; }
   .hud { position:fixed; inset:0; pointer-events:none; font-family:'Space Grotesk',sans-serif; color:#BFE8E0; }
-  .hud-top { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:0; right:0; display:flex; justify-content:space-between; padding:0 14px; align-items:flex-start; }
+  .hud-top { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:0; right:0; display:flex; justify-content:space-between; padding:0 calc(14px + env(safe-area-inset-right)) 0 calc(14px + env(safe-area-inset-left)); align-items:flex-start; }
   .score-num { font-family:'Archivo Black',sans-serif; font-size:28px; color:#3EF0C6; text-shadow:0 0 16px rgba(62,240,198,.55); line-height:1; }
   .score-label { font-size:10px; letter-spacing:.16em; text-transform:uppercase; opacity:.6; margin-top:2px; }
   .tier-block { text-align:right; }
@@ -22,17 +22,29 @@
   #announce { position:absolute; top:34%; left:50%; transform:translate(-50%,-50%) scale(.8); font-family:'Archivo Black',sans-serif; font-size:min(11vw,52px); color:#FFC24D; text-shadow:0 0 36px rgba(255,194,77,.8); opacity:0; text-align:center; white-space:nowrap; }
   #announce.pop { animation:pop 1.6s ease forwards; }
   @keyframes pop { 0%{opacity:0;transform:translate(-50%,-50%) scale(.6)} 15%{opacity:1;transform:translate(-50%,-50%) scale(1.08)} 25%{transform:translate(-50%,-50%) scale(1)} 75%{opacity:1} 100%{opacity:0;transform:translate(-50%,-50%) scale(1.05)} }
-  #minimap { position:absolute; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); width:92px; height:92px; border-radius:10px; border:1px solid rgba(138,223,255,.3); background:rgba(4,16,30,.6); }
-  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:radial-gradient(ellipse at 50% 35%, rgba(8,32,52,.94), rgba(3,10,18,.98)); font-family:'Space Grotesk',sans-serif; color:#BFE8E0; text-align:center; padding:22px; padding-top:calc(22px + env(safe-area-inset-top)); z-index:10; transition:opacity .4s; overflow-y:auto; }
-  .overlay.hidden { opacity:0; pointer-events:none; }
+  #minimap { position:absolute; right:calc(12px + env(safe-area-inset-right)); bottom:calc(14px + env(safe-area-inset-bottom)); width:92px; height:92px; border-radius:10px; border:1px solid rgba(138,223,255,.3); background:rgba(4,16,30,.6); }
+  #live-pill { position:absolute; bottom:calc(18px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); font-size:11px; letter-spacing:.08em; color:#8ADFFF; background:rgba(4,16,30,.55); border:1px solid rgba(138,223,255,.25); border-radius:999px; padding:4px 12px; opacity:0; transition:opacity .4s; white-space:nowrap; }
+  #joy { position:fixed; left:0; top:0; pointer-events:none; z-index:5; opacity:0; transition:opacity .2s; }
+  #joy .base { position:absolute; left:-56px; top:-56px; width:112px; height:112px; border-radius:50%; border:2px solid rgba(138,223,255,.35); background:rgba(8,32,52,.28); }
+  #joy .knob { position:absolute; left:-22px; top:-22px; width:44px; height:44px; border-radius:50%; background:rgba(62,240,198,.32); border:2px solid rgba(62,240,198,.65); box-shadow:0 0 18px rgba(62,240,198,.4); }
+  #joy.on { opacity:1; }
+  #joy.ghost { opacity:.25; }
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:radial-gradient(ellipse at 50% 35%, rgba(8,32,52,.94), rgba(3,10,18,.98)); font-family:'Space Grotesk',sans-serif; color:#BFE8E0; text-align:center; padding:22px; padding-top:calc(22px + env(safe-area-inset-top)); z-index:10; visibility:visible; transition:opacity .4s, visibility 0s; overflow-y:auto; }
+  /* visibility:hidden removes the whole subtree from hit-testing — children with
+     pointer-events:auto (buttons, name input) must never catch taps through an
+     invisible overlay */
+  .overlay.hidden { opacity:0; pointer-events:none; visibility:hidden; transition:opacity .4s, visibility 0s .4s; }
+  .overlay.hidden * { pointer-events:none !important; }
   h1 { font-family:'Archivo Black',sans-serif; font-size:min(16vw,80px); color:#3EF0C6; text-shadow:0 0 40px rgba(62,240,198,.55); line-height:1; }
   .tag { margin-top:8px; font-size:13px; letter-spacing:.3em; text-transform:uppercase; opacity:.75; }
   .rules { margin-top:16px; font-size:13.5px; line-height:1.8; opacity:.85; max-width:330px; }
   .rules b.eat{color:#FFC24D} .rules b.flee{color:#FF4D6A} .rules b.sting{color:#C88AFF}
-  #name { pointer-events:auto; margin-top:18px; font-family:'Space Grotesk',sans-serif; font-size:16px; text-align:center; letter-spacing:.06em; color:#3EF0C6; background:rgba(62,240,198,.08); border:1.5px solid rgba(62,240,198,.4); border-radius:12px; padding:12px 16px; width:min(78vw,280px); outline:none; }
+  #name { pointer-events:auto; user-select:text; -webkit-user-select:text; margin-top:18px; font-family:'Space Grotesk',sans-serif; font-size:16px; text-align:center; letter-spacing:.06em; color:#3EF0C6; background:rgba(62,240,198,.08); border:1.5px solid rgba(62,240,198,.4); border-radius:12px; padding:12px 16px; width:min(78vw,280px); outline:none; }
   #name::placeholder { color:rgba(191,232,224,.4); }
   .btn { pointer-events:auto; margin-top:18px; font-family:'Archivo Black',sans-serif; font-size:18px; letter-spacing:.08em; color:#04101E; background:#3EF0C6; border:none; border-radius:999px; padding:16px 48px; cursor:pointer; box-shadow:0 0 30px rgba(62,240,198,.45); transition:transform .12s; }
   .btn:active { transform:scale(.94); }
+  .btn2 { background:rgba(62,240,198,.1); color:#3EF0C6; border:1.5px solid rgba(62,240,198,.5); box-shadow:none; font-size:15px; padding:13px 40px; margin-top:12px; }
+  #pausebtn { pointer-events:auto; position:absolute; top:calc(8px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); width:42px; height:42px; border-radius:50%; border:1px solid rgba(138,223,255,.3); background:rgba(4,16,30,.55); color:#8ADFFF; font-size:13px; letter-spacing:2px; text-indent:2px; cursor:pointer; display:none; }
   #death-title { color:#FF4D6A; text-shadow:0 0 40px rgba(255,77,106,.6); }
   #final-stats { margin-top:10px; font-size:14px; line-height:1.9; opacity:.85; }
   #final-stats span { color:#FFC24D; font-weight:600; }
@@ -45,6 +57,27 @@
   .lb-score { color:#FFC24D; font-weight:600; }
   .lb-note { margin-top:8px; font-size:11px; opacity:.5; }
   .lb-empty { font-size:13px; opacity:.55; padding:10px; }
+  .live { margin-top:16px; width:min(84vw,300px); }
+  .live-title { font-family:'Archivo Black',sans-serif; font-size:11px; letter-spacing:.22em; color:#3EF0C6; margin-bottom:6px; }
+  .live-row { display:flex; align-items:center; gap:8px; font-size:13px; padding:5px 12px; border-radius:8px; margin-bottom:3px; background:rgba(62,240,198,.07); }
+  .live-dot { width:7px; height:7px; border-radius:50%; background:#3EF0C6; box-shadow:0 0 8px #3EF0C6; flex:none; }
+  .live-name { flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .live-stat { opacity:.6; font-size:12px; }
+  .live-empty { font-size:12px; opacity:.5; padding:6px; }
+  .ov-col { display:flex; flex-direction:column; align-items:center; }
+  /* landscape phones: split overlays into two columns so nothing clips */
+  @media (orientation:landscape) and (max-height:560px){
+    .overlay { flex-direction:row; align-items:center; justify-content:center; gap:12px 46px; padding-left:calc(22px + env(safe-area-inset-left)); padding-right:calc(22px + env(safe-area-inset-right)); }
+    #pause.overlay { flex-direction:column; }
+    h1 { font-size:min(11vh,54px); }
+    .rules { font-size:12px; line-height:1.6; max-width:300px; }
+    #name { margin-top:4px; padding:10px 14px; width:min(40vw,260px); }
+    .btn { margin-top:12px; padding:12px 38px; font-size:16px; }
+    .btn2 { margin-top:10px; padding:10px 32px; font-size:14px; }
+    .lb, .live { margin-top:12px; width:min(40vw,280px); }
+    .lb { max-height:36vh; overflow-y:auto; }
+    #final-stats { font-size:13px; }
+  }
 </style>
 </head>
 <body>
@@ -65,39 +98,66 @@
   <div id="stung">STUNG!</div>
   <div id="announce"></div>
   <canvas id="minimap" width="92" height="92"></canvas>
+  <div id="live-pill"></div>
+  <button id="pausebtn" aria-label="Pause">❚❚</button>
 </div>
 
+<div id="joy"><div class="base"></div><div class="knob"></div></div>
+
 <div class="overlay" id="start">
-  <h1>APEX<br>ABYSS</h1>
-  <div class="tag">Eat &middot; Grow &middot; Survive</div>
-  <div class="rules">
-    Touch and hold — you swim toward your finger.<br>
-    Hunt <b class="eat">anything smaller</b>. Flee <b class="flee">anything bigger</b>.<br>
-    Tear through <b class="eat">schools of fish</b> for fast combos.<br>
-    Avoid <b class="sting">jellyfish</b> — their sting breaks your streak.<br>
-    Chain 5 kills for <b class="flee">FRENZY</b>.
+  <div class="ov-col">
+    <h1>APEX<br>ABYSS</h1>
+    <div class="tag">Eat &middot; Grow &middot; Survive</div>
+    <div class="rules">
+      Drag anywhere — a joystick appears under your thumb.<br>
+      (On desktop, hold the mouse and swim toward it.)<br>
+      Hunt <b class="eat">anything smaller</b>. Flee <b class="flee">anything bigger</b>.<br>
+      Avoid <b class="sting">jellyfish</b> — their sting breaks your streak.<br>
+      Chain 5 kills for <b class="flee">FRENZY</b>.
+    </div>
   </div>
-  <input id="name" maxlength="14" placeholder="Your hunter name" autocomplete="off">
-  <button class="btn" id="play">DIVE IN</button>
-  <div class="lb">
-    <div class="lb-title">GLOBAL APEX BOARD</div>
-    <div id="lb-start"><div class="lb-empty">Loading the board…</div></div>
-    <div class="lb-note" id="lb-note">Top 10 hunters on this device.</div>
+  <div class="ov-col">
+    <input id="name" maxlength="14" placeholder="Your hunter name" autocomplete="off">
+    <button class="btn" id="play">DIVE IN</button>
+    <div class="live" id="live-start"></div>
+    <div class="lb">
+      <div class="lb-title">GLOBAL APEX BOARD</div>
+      <div id="lb-start"><div class="lb-empty">Loading the board…</div></div>
+      <div class="lb-note" id="lb-note">Top 10 hunters on this device.</div>
+    </div>
   </div>
 </div>
 
 <div class="overlay hidden" id="death">
-  <h1 id="death-title">DEVOURED</h1>
-  <div id="final-stats"></div>
-  <button class="btn" id="again">HUNT AGAIN</button>
-  <div class="lb">
-    <div class="lb-title">GLOBAL APEX BOARD</div>
-    <div id="lb-death"></div>
+  <div class="ov-col">
+    <h1 id="death-title">DEVOURED</h1>
+    <div id="final-stats"></div>
+    <button class="btn" id="again">HUNT AGAIN</button>
+    <button class="btn btn2" id="tomenu">MAIN MENU</button>
   </div>
+  <div class="ov-col">
+    <div class="lb">
+      <div class="lb-title">GLOBAL APEX BOARD</div>
+      <div id="lb-death"></div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="pause">
+  <h1 id="pause-title">PAUSED</h1>
+  <button class="btn" id="resume">RESUME</button>
+  <button class="btn btn2" id="restart">RESTART RUN</button>
+  <button class="btn btn2" id="exitmenu">MAIN MENU</button>
 </div>
 
 <script>
 (() => {
+// Paste your Cloudflare Worker URL here (e.g. 'https://apex-abyss.you.workers.dev')
+// to get a truly global leaderboard + live player list on any static host.
+// Leave '' and the game falls back to artifact shared storage, then localStorage.
+// Setup takes ~5 minutes — see HANDOFF.md.
+const BACKEND_URL = '';
+
 // ================= WORLD =================
 const WORLD = 4200;
 const canvas = document.getElementById('game');
@@ -106,7 +166,10 @@ const mm = document.getElementById('minimap');
 const mctx = mm.getContext('2d');
 let W, H, DPR;
 function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight; canvas.width=W*DPR; canvas.height=H*DPR; canvas.style.width=W+'px'; canvas.style.height=H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0); }
-resize(); addEventListener('resize', resize);
+resize();
+addEventListener('resize', ()=>{ resize(); if(!joy.active) joyGhost(); });
+// iOS reports stale dimensions right at rotation — re-measure after it settles
+addEventListener('orientationchange', ()=>setTimeout(()=>{ resize(); if(!joy.active) joyGhost(); },250));
 
 // ================= AUDIO =================
 let AC=null;
@@ -131,7 +194,8 @@ let player, fish=[], schools=[], jellies=[], kelps=[], wrecks=[], particles=[], 
 let whale=null, whaleTimer=600;
 let cam={x:0,y:0};
 let score=0, combo=0, comboTimer=0, frenzy=0, stun=0, shake=0, running=false;
-let touch={x:0,y:0,active:false};
+let paused=false, pausedAt=0;
+let mouse={x:0,y:0,active:false};
 let survivedStart=0, myName='Hunter';
 
 const scoreEl=document.getElementById('score'), tierEl=document.getElementById('tier'),
@@ -154,6 +218,9 @@ let storageOK = typeof window.storage !== 'undefined';   // Claude artifact shar
 let lsOK = (()=>{ try{ localStorage.setItem('__t','1'); localStorage.removeItem('__t'); return true; }catch(e){ return false; } })();
 let memBoard = [];
 async function loadBoard(){
+  if(BACKEND_URL){
+    try{ const r=await fetch(BACKEND_URL+'/board'); if(r.ok) return await r.json(); }catch(e){}
+  }
   if(storageOK){
     try{ const r=await window.storage.get(LB_KEY,true); return r&&r.value? JSON.parse(r.value):[]; }catch(e){ return []; }
   }
@@ -165,6 +232,12 @@ async function loadBoard(){
 async function saveScore(name,sc,tier){
   const entry={name:name.slice(0,14)||'Hunter',score:sc,tier,t:Date.now()};
   const trim=b=>{ b.push(entry); b.sort((a,b2)=>b2.score-a.score); return b.slice(0,10); };
+  if(BACKEND_URL){
+    try{
+      const r=await fetch(BACKEND_URL+'/score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)});
+      if(r.ok) return await r.json();
+    }catch(e){}
+  }
   if(storageOK){
     try{
       let b=trim(await loadBoard());
@@ -191,8 +264,55 @@ function renderBoard(el,board,hl){
        <div class="lb-score">${e.score}</div>
      </div>`).join('');
 }
-if(storageOK) document.getElementById('lb-note').textContent='Scores are shared — every player of this game sees this board.';
+if(BACKEND_URL) document.getElementById('lb-note').textContent='One global board — every hunter, every device.';
+else if(storageOK) document.getElementById('lb-note').textContent='Scores are shared — every player of this game sees this board.';
 loadBoard().then(b=>renderBoard(document.getElementById('lb-start'),b));
+
+// ================= LIVE PRESENCE =================
+// Best-effort "who's online": heartbeat {id,name,score} every 5s into the
+// shared channel (worker or artifact storage); entries older than 30s are
+// pruned, so the list self-heals when someone closes the tab.
+const LIVE_KEY='apex-abyss-live-v1';
+const MYID=(self.crypto&&crypto.randomUUID)? crypto.randomUUID() : 'p'+Math.random().toString(36).slice(2)+Date.now().toString(36);
+const livePill=document.getElementById('live-pill');
+const liveStartEl=document.getElementById('live-start');
+const hasLiveChannel = !!BACKEND_URL || storageOK;
+let liveList=[];
+function nameNow(){ const v=document.getElementById('name').value.trim(); return (v||myName).slice(0,14); }
+async function heartbeat(){
+  const me={id:MYID,n:nameNow(),s:running?score:-1,tier:TIERS[tierIndex()].name,t:Date.now()};
+  let players=null;
+  if(BACKEND_URL){
+    try{
+      const r=await fetch(BACKEND_URL+'/live',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(me)});
+      if(r.ok) players=(await r.json()).players;
+    }catch(e){}
+  } else if(storageOK){
+    try{
+      const raw=await window.storage.get(LIVE_KEY,true);
+      const map=raw&&raw.value? JSON.parse(raw.value):{};
+      const now=Date.now();
+      for(const k in map) if(!map[k]||now-map[k].t>30000) delete map[k];
+      map[MYID]=me;
+      await window.storage.set(LIVE_KEY,JSON.stringify(map),true);
+      players=Object.values(map);
+    }catch(e){}
+  }
+  if(players){ liveList=players; renderLive(); }
+}
+function renderLive(){
+  const others=liveList.filter(p=>p&&p.id!==MYID).sort((a,b)=>(b.s||0)-(a.s||0));
+  if(running && others.length){
+    livePill.textContent='🟢 '+others.length+' other hunter'+(others.length>1?'s':'')+' in the abyss';
+    livePill.style.opacity=1;
+  } else livePill.style.opacity=0;
+  liveStartEl.innerHTML='<div class="live-title">IN THE ABYSS NOW</div>'+
+    (others.length
+      ? others.map(p=>`<div class="live-row"><span class="live-dot"></span><span class="live-name">${String(p.n||'Hunter').replace(/[<>&]/g,'')}</span><span class="live-stat">${p.s>=0? p.s+' · hunting':'in the lobby'}</span></div>`).join('')
+      : '<div class="live-empty">No one else right now — send a friend the link.</div>');
+}
+if(hasLiveChannel){ heartbeat(); setInterval(heartbeat,5000); }
+else liveStartEl.innerHTML='<div class="live-empty">Live player list needs the free 5-minute backend — see HANDOFF.md.</div>';
 
 // ================= SPAWN =================
 function spawnFish(nearPlayer){
@@ -267,28 +387,73 @@ function reset(){
 }
 
 // ================= INPUT =================
-function setTouch(e){ const p=e.touches?e.touches[0]:e; touch.x=p.clientX; touch.y=p.clientY; touch.active=true; }
-addEventListener('touchstart', e=>{ if(running) setTouch(e); }, {passive:true});
-addEventListener('touchmove',  e=>{ if(running){ setTouch(e); e.preventDefault(); } }, {passive:false});
-addEventListener('touchend',   ()=>{ touch.active=false; }, {passive:true});
-addEventListener('pointerdown', e=>{ if(running && e.pointerType!=='touch') setTouch(e); });
-addEventListener('pointermove', e=>{ if(running && e.pointerType!=='touch' && touch.active) setTouch(e); });
-addEventListener('pointerup',   e=>{ if(e.pointerType!=='touch') touch.active=false; });
+// Touch: floating joystick — the base anchors wherever the thumb lands and is
+// tracked by touch identifier, so a second finger can't hijack steering. The
+// base drags along on long swipes so the stick never runs away from the thumb.
+// Desktop mouse keeps the original hold-to-follow behavior.
+const isTouch = matchMedia('(pointer:coarse)').matches || 'ontouchstart' in window;
+const JOY_R=52, JOY_DEAD=.14;
+const joyEl=document.getElementById('joy'), knobEl=joyEl.querySelector('.knob');
+let joy={active:false,id:null,bx:0,by:0,dx:0,dy:0};
+function joyPlace(x,y,cls){ joyEl.style.transform=`translate(${x}px,${y}px)`; joyEl.className=cls; }
+function joyKnob(){ knobEl.style.transform=`translate(${joy.dx*JOY_R}px,${joy.dy*JOY_R}px)`; }
+function joyGhost(){
+  joy.active=false; joy.id=null; joy.dx=joy.dy=0; joyKnob();
+  if(isTouch && running && !paused) joyPlace(96,H-132,'ghost');
+  else joyEl.className='';
+}
+addEventListener('touchstart', e=>{
+  if(!running || paused || joy.active) return;
+  if(e.target && e.target.id==='pausebtn') return;
+  const t=e.changedTouches[0];
+  joy.active=true; joy.id=t.identifier;
+  joy.bx=t.clientX; joy.by=t.clientY; joy.dx=joy.dy=0;
+  joyPlace(joy.bx,joy.by,'on'); joyKnob();
+},{passive:true});
+addEventListener('touchmove', e=>{
+  if(!running || paused) return;
+  if(joy.active) for(const t of e.changedTouches){
+    if(t.identifier!==joy.id) continue;
+    let vx=t.clientX-joy.bx, vy=t.clientY-joy.by;
+    const len=Math.hypot(vx,vy);
+    if(len>JOY_R){
+      const ex=(len-JOY_R)/len;
+      joy.bx+=vx*ex; joy.by+=vy*ex;
+      vx=t.clientX-joy.bx; vy=t.clientY-joy.by;
+      joyPlace(joy.bx,joy.by,'on');
+    }
+    joy.dx=vx/JOY_R; joy.dy=vy/JOY_R;
+    joyKnob();
+  }
+  e.preventDefault();
+},{passive:false});
+const joyEnd=e=>{ for(const t of e.changedTouches) if(t.identifier===joy.id) joyGhost(); };
+addEventListener('touchend', joyEnd, {passive:true});
+addEventListener('touchcancel', joyEnd, {passive:true});
+addEventListener('pointerdown', e=>{ if(running && !paused && e.pointerType!=='touch'){ mouse.x=e.clientX; mouse.y=e.clientY; mouse.active=true; } });
+addEventListener('pointermove', e=>{ if(running && !paused && e.pointerType!=='touch' && mouse.active){ mouse.x=e.clientX; mouse.y=e.clientY; } });
+addEventListener('pointerup',   e=>{ if(e.pointerType!=='touch') mouse.active=false; });
 
 // ================= LOOP =================
 let last=0;
 function loop(ts){
   requestAnimationFrame(loop);
   const dt=Math.min(32,ts-last)/16.67; last=ts;
-  if(!running) return;
+  if(!running || paused) return;
 
   // ---- player ----
   const slow = stun>0? .45 : 1;
-  if(touch.active){
-    const tx=touch.x+cam.x, ty=touch.y+cam.y;
-    const dx=tx-player.x, dy=ty-player.y, d=Math.hypot(dx,dy);
-    const maxS=(3.6+Math.min(2.2,score*.01))*(frenzy>0?1.35:1)*slow*Math.pow(18/(player.r+6),.16);
-    if(d>6){ player.vx+=(dx/d)*maxS*.15*dt; player.vy+=(dy/d)*maxS*.15*dt; }
+  const maxS=(3.6+Math.min(2.2,score*.01))*(frenzy>0?1.35:1)*slow*Math.pow(18/(player.r+6),.16);
+  let dirX=0, dirY=0, drive=0;
+  if(joy.active){
+    const m=Math.hypot(joy.dx,joy.dy);
+    if(m>JOY_DEAD){ dirX=joy.dx/m; dirY=joy.dy/m; drive=Math.min(1,(m-JOY_DEAD)/(1-JOY_DEAD)); }
+  } else if(mouse.active){
+    const dx=mouse.x+cam.x-player.x, dy=mouse.y+cam.y-player.y, d=Math.hypot(dx,dy);
+    if(d>6){ dirX=dx/d; dirY=dy/d; drive=1; }
+  }
+  if(drive>0){
+    player.vx+=dirX*maxS*drive*.15*dt; player.vy+=dirY*maxS*drive*.15*dt;
     const sp=Math.hypot(player.vx,player.vy);
     if(sp>maxS){ player.vx*=maxS/sp; player.vy*=maxS/sp; }
   }
@@ -461,6 +626,9 @@ function eat(x,y,r,hue,small){
 
 async function die(){
   running=false;
+  pauseBtn.style.display='none';
+  livePill.style.opacity=0;
+  joy.active=false; joy.id=null; joyEl.className='';
   burst(player.x,player.y,'#3EF0C6',50,5);
   beep(180,.5,'sawtooth',.16,-140);
   if(navigator.vibrate) navigator.vibrate([60,50,120]);
@@ -763,18 +931,66 @@ function renderMinimap(){
 }
 
 // ================= FLOW =================
+const pauseBtn=document.getElementById('pausebtn');
+const pauseOv=document.getElementById('pause');
 function start(){
   if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
   if(AC && AC.state==='suspended') AC.resume();
-  const nm=document.getElementById('name').value.trim();
+  const nameEl=document.getElementById('name');
+  const nm=nameEl.value.trim();
   if(nm) myName=nm;
+  nameEl.blur();
   reset();
   document.getElementById('start').classList.add('hidden');
   document.getElementById('death').classList.add('hidden');
-  running=true; touch.active=false;
+  pauseOv.classList.add('hidden');
+  paused=false; running=true; mouse.active=false;
+  pauseBtn.style.display='block';
+  joyGhost(); renderLive();
+}
+function pauseGame(){
+  if(!running || paused) return;
+  paused=true; pausedAt=performance.now();
+  mouse.active=false; joy.active=false; joy.id=null; joyEl.className='';
+  pauseOv.classList.remove('hidden');
+  pauseBtn.style.display='none';
+}
+function resumeGame(){
+  if(!paused) return;
+  paused=false;
+  survivedStart+=performance.now()-pausedAt;   // pause doesn't count as survival time
+  pauseOv.classList.add('hidden');
+  pauseBtn.style.display='block';
+  joyGhost();
+}
+function exitToMenu(){
+  paused=false; running=false;
+  mouse.active=false; joy.active=false; joy.id=null; joyEl.className='';
+  pauseOv.classList.add('hidden');
+  document.getElementById('death').classList.add('hidden');
+  document.getElementById('start').classList.remove('hidden');
+  pauseBtn.style.display='none';
+  livePill.style.opacity=0;
+  loadBoard().then(b=>renderBoard(document.getElementById('lb-start'),b));
+  renderLive();
 }
 document.getElementById('play').addEventListener('click', start);
 document.getElementById('again').addEventListener('click', start);
+document.getElementById('restart').addEventListener('click', start);
+document.getElementById('tomenu').addEventListener('click', exitToMenu);
+document.getElementById('exitmenu').addEventListener('click', exitToMenu);
+document.getElementById('resume').addEventListener('click', resumeGame);
+pauseBtn.addEventListener('click', pauseGame);
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) pauseGame(); });
+addEventListener('keydown', e=>{ if(e.key==='Escape'||e.key==='p') paused? resumeGame():pauseGame(); });
+
+// Trap browser back (button or swipe) so it never kills a run — it opens the
+// pause menu instead. We immediately re-push state so the page never unloads.
+history.pushState({apex:1},'');
+addEventListener('popstate', ()=>{
+  history.pushState({apex:1},'');
+  if(running && !paused) pauseGame();
+});
 
 reset();
 requestAnimationFrame(loop);
