@@ -165,7 +165,20 @@ const ctx = canvas.getContext('2d');
 const mm = document.getElementById('minimap');
 const mctx = mm.getContext('2d');
 let W, H, DPR;
-function resize(){ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight; canvas.width=W*DPR; canvas.height=H*DPR; canvas.style.width=W+'px'; canvas.style.height=H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0); }
+let quality=1;   // dynamic render-resolution scale — stepped down when frames run long
+let R_NEAR2, R_FREEZE2, R_CULL2, R_SFREEZE2, R_SCULL2;  // simulation bubble radii²
+function resize(){
+  DPR=Math.max(.75, Math.min(devicePixelRatio||1,2)*quality);
+  W=innerWidth; H=innerHeight;
+  canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  const DIAG=Math.hypot(W,H);
+  R_NEAR2  =(DIAG* .95)**2;   // fish inside this count toward on-screen density
+  R_FREEZE2=(DIAG*1.05)**2;   // beyond this: not simulated at all (frozen)
+  R_CULL2  =(DIAG*1.7 )**2;   // beyond this: recycled once over the population cap
+  R_SFREEZE2=(DIAG*1.15)**2; R_SCULL2=(DIAG*2)**2;  // same idea for schools
+}
 resize();
 addEventListener('resize', ()=>{ resize(); if(!joy.active) joyGhost(); });
 // iOS reports stale dimensions right at rotation — re-measure after it settles
@@ -388,7 +401,8 @@ function spawnFish(nearPlayer){
   const r= threat? pr*rnd(1.25,2.2) : Math.max(5,pr*rnd(0.28,0.9));
   let x,y;
   if(nearPlayer){
-    const a=Math.random()*Math.PI*2, dist=Math.hypot(W,H)/2+rnd(80,420);
+    // just off-screen but safely inside the "near" census radius (0.95×diag)
+    const a=Math.random()*Math.PI*2, dist=Math.hypot(W,H)/2+rnd(80,300);
     x=player.x+Math.cos(a)*dist; y=player.y+Math.sin(a)*dist;
   } else { x=rnd(60,WORLD-60); y=rnd(60,WORLD-60); }
   // harmless prey may spawn in view (keeps the world lively); threats never
@@ -506,11 +520,20 @@ addEventListener('pointermove', e=>{ if(running && !paused && e.pointerType!=='t
 addEventListener('pointerup',   e=>{ if(e.pointerType!=='touch') mouse.active=false; });
 
 // ================= LOOP =================
-let last=0;
+let last=0, frameCount=0, frameAvg=16.7, qCool=0, nearFish=12;
 function loop(ts){
   requestAnimationFrame(loop);
-  const dt=Math.min(32,ts-last)/16.67; last=ts;
+  const raw=ts-last;
+  const dt=Math.min(32,raw)/16.67; last=ts;
   if(!running || paused) return;
+  frameCount++;
+
+  // auto-quality: sustained long frames -> drop render resolution one step;
+  // sustained headroom -> climb back. Keeps late-game mobile smooth.
+  frameAvg+=(Math.min(100,raw)-frameAvg)*.05;
+  if(qCool>0) qCool--;
+  else if(frameAvg>26 && quality>.5){ quality=Math.max(.5,quality-.17); resize(); qCool=240; }
+  else if(frameAvg<15 && quality<1){ quality=Math.min(1,quality+.17); resize(); qCool=720; }
 
   // ---- player ----
   const slow = stun>0? .45 : 1;
@@ -545,17 +568,29 @@ function loop(ts){
   if(stun>0){ stun-=dt; if(stun<=0) stungEl.style.opacity=0; }
 
   // ---- population ----
-  const near = fish.filter(f=>Math.abs(f.x-player.x)<W && Math.abs(f.y-player.y)<H).length;
-  if(near<12) spawnFish(true);
+  // nearFish is last frame's census (counted in the fish loop below, no
+  // extra pass, no array allocation). The fish.length<90 cap matters: this
+  // spawner used to run unbounded — the fish array grew forever and the
+  // game slowed to a crawl after a few minutes.
+  if(nearFish<12 && fish.length<90) spawnFish(true);
   if(fish.length<60) spawnFish(false);
   if(schools.length<9) spawnSchool(true);
   if(jellies.length<16) spawnJelly();
 
   // ---- solo fish ----
+  nearFish=0;
   for(let i=fish.length-1;i>=0;i--){
     const f=fish[i];
+    const ddx=f.x-player.x, ddy=f.y-player.y, d2=ddx*ddx+ddy*ddy;
+    if(d2<R_NEAR2) nearFish++;
+    if(d2>R_FREEZE2){
+      // frozen: too far to be seen or to matter — zero simulation cost.
+      // Way outside AND over the population cap? recycle it.
+      if(fish.length>70 && d2>R_CULL2) fish.splice(i,1);
+      continue;
+    }
     f.wob+=.08*f.wobS*dt;
-    const dx=player.x-f.x, dy=player.y-f.y, d=Math.hypot(dx,dy)||1;
+    const dx=-ddx, dy=-ddy, d=Math.sqrt(d2)||1;
     if(f.threat && d<300){ f.vx+=(dx/d)*.03*dt; f.vy+=(dy/d)*.03*dt; }
     else if(!f.threat && d<150 && f.r<player.r){ f.vx-=(dx/d)*.055*dt; f.vy-=(dy/d)*.055*dt; }
     const a=Math.atan2(f.vy,f.vx)+f.turn*dt, s=Math.hypot(f.vx,f.vy);
@@ -575,6 +610,13 @@ function loop(ts){
     const sc=schools[si];
     const M=sc.members;
     if(!M.length){ schools.splice(si,1); continue; }
+    // freeze far schools (probe one member — they stay clustered); recycle
+    // schools left far behind so the spawner replaces them near the player
+    const pdx=M[0].x-player.x, pdy=M[0].y-player.y, pd2=pdx*pdx+pdy*pdy;
+    if(pd2>R_SFREEZE2){
+      if(pd2>R_SCULL2) schools.splice(si,1);
+      continue;
+    }
     // school heading changes occasionally
     sc.htimer-=dt;
     if(sc.htimer<=0){ sc.heading+=rnd(-1.2,1.2); sc.htimer=rnd(120,360); }
@@ -622,6 +664,8 @@ function loop(ts){
 
   // ---- jellyfish ----
   jellies.forEach(j=>{
+    const jdx=j.x-player.x, jdy=j.y-player.y;
+    if(jdx*jdx+jdy*jdy>R_FREEZE2) return;   // frozen off-bubble
     j.p+=.045*dt; j.drift+=j.dr*.01*dt;
     j.x+=Math.cos(j.drift)*.25*dt;
     j.y+=Math.sin(j.p*.5)*.2*dt - .12*dt; // slow upward drift
@@ -661,10 +705,11 @@ function loop(ts){
     if(whale.x<cam.x-900||whale.x>cam.x+W+900){ whale=null; whaleTimer=rnd(700,1600); }
   }
 
-  // ---- vent bubbles ----
+  // ---- vent bubbles (only from vents anywhere near the view) ----
   if(Math.random()<.3*dt){
     const v=vents[Math.floor(Math.random()*vents.length)];
-    ventBubbles.push({x:v.x+rnd(-14,14), y:v.y, r:rnd(1.5,4), life:1, s:rnd(.5,1.1)});
+    if(Math.abs(v.x-player.x)<W && Math.abs(v.y-player.y)<H)
+      ventBubbles.push({x:v.x+rnd(-14,14), y:v.y, r:rnd(1.5,4), life:1, s:rnd(.5,1.1)});
   }
   for(let i=ventBubbles.length-1;i>=0;i--){
     const b=ventBubbles[i];
@@ -687,7 +732,7 @@ function loop(ts){
   });
 
   render(ts);
-  renderMinimap();
+  if(frameCount%6===0) renderMinimap();   // 10Hz is plenty for a 92px map
 }
 
 function eat(x,y,r,hue,small){
@@ -762,7 +807,8 @@ function drawJelly(j,ts){
   const pulse=Math.sin(j.p)* .5 + .5;              // 0..1
   const bw=j.r*(1+pulse*.18), bh=j.r*(.75+pulse*.28);
   ctx.save(); ctx.translate(j.x,j.y);
-  ctx.shadowColor='#C88AFF'; ctx.shadowBlur=16;
+  // no shadowBlur here — canvas shadows are brutally slow on mobile GPUs;
+  // the radial gradient already provides the glow falloff
   // bell
   const g=ctx.createRadialGradient(0,-bh*.2,2, 0,0,bw);
   g.addColorStop(0,'rgba(232,206,255,.85)');
@@ -776,7 +822,6 @@ function drawJelly(j,ts){
   ctx.quadraticCurveTo(bw*.5,bh*.25, 0,bh*.1);
   ctx.quadraticCurveTo(-bw*.5,bh*.25, -bw,0);
   ctx.fill();
-  ctx.shadowBlur=0;
   // tentacles
   ctx.strokeStyle='rgba(200,138,255,.5)'; ctx.lineWidth=1.4;
   for(let t=0;t<5;t++){
@@ -795,10 +840,14 @@ function drawKelp(k,ts){
     s.p+=.015;
     const bx=k.x+s.ox;
     const sway1=Math.sin(s.p)*14, sway2=Math.sin(s.p*1.4+1)*22;
-    const grad=ctx.createLinearGradient(bx,k.y,bx,k.y-s.h);
-    grad.addColorStop(0,'rgba(30,120,90,.85)');
-    grad.addColorStop(1,'rgba(62,240,198,.35)');
-    ctx.strokeStyle=grad; ctx.lineWidth=s.w; ctx.lineCap='round';
+    // kelp roots don't move — build each strand's gradient once, not per frame
+    // (gradient churn was constant allocation pressure -> GC hitches)
+    if(!s.grad){
+      s.grad=ctx.createLinearGradient(bx,k.y,bx,k.y-s.h);
+      s.grad.addColorStop(0,'rgba(30,120,90,.85)');
+      s.grad.addColorStop(1,'rgba(62,240,198,.35)');
+    }
+    ctx.strokeStyle=s.grad; ctx.lineWidth=s.w; ctx.lineCap='round';
     ctx.beginPath();
     ctx.moveTo(bx,k.y);
     ctx.bezierCurveTo(bx+sway1*.4, k.y-s.h*.4, bx+sway1, k.y-s.h*.7, bx+sway2, k.y-s.h);
@@ -877,13 +926,17 @@ function drawWhale(ts){
 }
 
 // ================= RENDER =================
+let bgGrad=null, bgGradH=0;
 function render(ts){
   ctx.save();
   if(shake>0) ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);
 
-  const g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#0A2438'); g.addColorStop(.55,'#04101E'); g.addColorStop(1,'#020810');
-  ctx.fillStyle=g; ctx.fillRect(-20,-20,W+40,H+40);
+  if(!bgGrad || bgGradH!==H){
+    bgGrad=ctx.createLinearGradient(0,0,0,H);
+    bgGrad.addColorStop(0,'#0A2438'); bgGrad.addColorStop(.55,'#04101E'); bgGrad.addColorStop(1,'#020810');
+    bgGradH=H;
+  }
+  ctx.fillStyle=bgGrad; ctx.fillRect(-20,-20,W+40,H+40);
 
   ctx.globalAlpha=.05; ctx.fillStyle='#8ADFFF';
   for(let i=0;i<4;i++){
@@ -956,14 +1009,16 @@ function render(ts){
   // jellyfish (in front of fish, glowing)
   jellies.forEach(j=>{ if(vis(j,80)) drawJelly(j,ts); });
 
-  // remote hunters (ghosts — no collision) with name tags
+  // remote hunters (ghosts — no collision) with name tags. No shadowBlur —
+  // a cheap halo disc reads the same and costs nothing on mobile.
   net.players.forEach(p=>{
     if(!p.run || !vis({x:p.cx,y:p.cy},80)) return;
     const c=remoteColor(p.id), rr=Math.max(8,p.r||13);
-    ctx.shadowColor=c; ctx.shadowBlur=14;
+    ctx.globalAlpha=.16; ctx.fillStyle=c;
+    ctx.beginPath(); ctx.arc(p.cx,p.cy,rr*1.7,0,7); ctx.fill();
     ctx.globalAlpha=.9;
     drawFish(p.cx,p.cy,rr,p.ang,c,ts*.01,false);
-    ctx.shadowBlur=0; ctx.globalAlpha=1;
+    ctx.globalAlpha=1;
     ctx.font='600 11px "Space Grotesk",sans-serif'; ctx.textAlign='center';
     ctx.fillStyle='rgba(191,232,224,.9)';
     ctx.fillText(p.n||'Hunter', p.cx, p.cy-rr-10);
@@ -978,9 +1033,9 @@ function render(ts){
   }
   ctx.globalAlpha=1;
 
-  // player
+  // player — the one entity that keeps a real glow, kept modest for mobile
   const col= stun>0? '#C88AFF' : frenzy>0?'#FF4D6A':'#3EF0C6';
-  ctx.shadowColor=col; ctx.shadowBlur=22+player.glow*26;
+  ctx.shadowColor=col; ctx.shadowBlur=14+player.glow*16;
   drawFish(player.x,player.y,player.r,Math.atan2(player.vy,player.vx)||-Math.PI/2,col,ts*.01,false);
   ctx.shadowBlur=0;
 

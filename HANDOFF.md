@@ -73,6 +73,29 @@ automatically.
 
 - **Rendering:** Canvas 2D, DPR-capped at 2. All world objects are
   frustum-culled (`vis()` helper) so only on-screen entities draw.
+- **Auto-quality governor:** the loop tracks an exponential moving average
+  of frame time; sustained >26ms drops `quality` a step (render resolution
+  scales down, floor 0.5×), sustained <15ms climbs back up. Cooldowns (240 /
+  720 frames) prevent oscillation. Weak phones silently render fewer pixels
+  instead of stuttering.
+- **Simulation bubble:** every fish/school/jelly gets one squared-distance
+  check per frame. Inside ~0.95× screen diagonal it counts toward on-screen
+  density; outside ~1.05× it is *frozen* — zero simulation, zero draw cost
+  (minimap still shows it). Fish beyond 1.7× while over the 70-entity
+  budget are recycled; schools beyond 2× respawn near the player. **The
+  density spawner is hard-capped at 90 fish — it used to run unbounded
+  (one spawn per frame while fewer than 12 fish were "near"), which grew
+  the fish array forever and was the "game lags over time" bug.**
+- **Allocation hygiene:** background and kelp gradients are built once and
+  cached (they were re-created every frame per strand — constant GC churn);
+  the per-frame "near fish" census is a counting loop, not a `filter()`.
+- **shadowBlur only on the player:** canvas shadows are the single most
+  expensive 2D effect on mobile GPUs. Jellies rely on their radial-gradient
+  glow, remote hunters get a cheap alpha halo disc, and the player keeps
+  one modest shadow (blur 14–30).
+- **Minimap at 10Hz:** redrawn every 6th frame — imperceptible on a 92px
+  map, saves a full clear+iterate pass per frame. Vent bubbles only spawn
+  from vents near the view.
 - **Spawning:** fish density is maintained in a ring just outside the camera
   (world feels alive without simulating everything); global caps: ~60 solo
   fish, 9 schools, 16 jellies.
@@ -196,6 +219,9 @@ the WebSocket path has no such lag.
 | Spawn safety radius | `awayFromPlayer`: `Math.hypot(W,H)/2+120` | view bubble + 120px |
 | Net position send rate | `setInterval(()=>sendState(false),100)` | 10 Hz |
 | Remote smoothing / snap | `.2*dt` lerp, snap if `>600px` off | — |
+| Fish population caps | `fish.length<90` (density), `<60` (world), `>70` recycle | 60–90 |
+| Simulation bubble radii | `R_NEAR2/R_FREEZE2/R_CULL2` in `resize()` | 0.95× / 1.05× / 1.7× diag |
+| Quality governor | `frameAvg>26` down, `<15` up, floor `.5` | steps of .17 |
 
 ## Known limitations / ideas not yet built
 
